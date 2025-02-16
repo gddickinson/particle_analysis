@@ -3,8 +3,10 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QPushButton, QFileDialog, QTabWidget, QLabel,
                             QProgressBar, QMessageBox, QSpinBox, QComboBox,
-                            QCheckBox, QGroupBox, QToolBar, QStatusBar, QDoubleSpinBox, QSplitter)
+                            QCheckBox, QGroupBox, QToolBar, QStatusBar, QDoubleSpinBox, QSplitter, QTableWidget,
+                            QTableWidgetItem, QLineEdit)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QShortcut, QKeySequence
 import pyqtgraph as pg
 import numpy as np
 from pathlib import Path
@@ -19,6 +21,8 @@ from ..io.writers import DataWriter
 from ..visualization.viewers import TrackViewer, FeatureViewer
 from ..gui.image_viewer import ImageViewer
 from ..gui.workers import DetectionWorker, TrackingWorker
+from ..gui.settings_dialog import SettingsDialog
+from ..gui.help_dialog import HelpDialog
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -109,13 +113,25 @@ class MainWindow(QMainWindow):
     """Main application window"""
 
     def __init__(self):
+        """Initialize MainWindow"""
         super().__init__()
         self.setWindowTitle("Particle Analysis")
-        self.setup_ui()
 
         # Initialize state
         self.current_results = None
         self.analysis_worker = None
+
+        # Set up the UI first
+        self.setup_ui()
+
+        # Connect basic UI actions
+        self.connect_actions()
+
+        # Then set up menu bar (which will connect its own actions)
+        self.setup_menubar()
+
+        # Set window size
+        self.resize(1200, 800)
 
     def setup_ui(self):
         """Set up the user interface"""
@@ -148,9 +164,10 @@ class MainWindow(QMainWindow):
         track_action.setEnabled(False)
         self.track_action = track_action
 
-        run_action = toolbar.addAction("Run Analysis")
+        run_action = toolbar.addAction("Analyze Full Image")
         run_action.triggered.connect(self.run_analysis)
         run_action.setEnabled(False)
+        run_action.setToolTip("Detect and track particles in the entire image")
         self.run_action = run_action
 
         stop_action = toolbar.addAction("Stop")
@@ -222,11 +239,15 @@ class MainWindow(QMainWindow):
 
         # Track visualization tab
         self.track_viewer = TrackViewer()
-        tabs.addTab(self.track_viewer, "Tracks")
+        tabs.addTab(self.track_viewer, "Visualization")
 
         # Feature analysis tab
         self.feature_viewer = FeatureViewer()
-        tabs.addTab(self.feature_viewer, "Features")
+        tabs.addTab(self.feature_viewer, "Analysis")
+
+        # Add new results tables tab
+        tables_tab = self.setup_results_tables()
+        tabs.addTab(tables_tab, "Results Tables")
 
         splitter.addWidget(tabs)
 
@@ -237,6 +258,9 @@ class MainWindow(QMainWindow):
         self.detected_particles = None
         self.detection_worker = None
         self.tracking_worker = None
+
+        # Connect actions
+        self.connect_actions()
 
         # Add progress bar
         self.progress_bar = QProgressBar()
@@ -326,10 +350,15 @@ class MainWindow(QMainWindow):
         """Update progress bar"""
         self.progress_bar.setValue(value)
 
+
     def analysis_finished(self, results: dict):
         """Handle analysis completion"""
         self.current_results = results
         self.stop_action.setEnabled(False)
+
+        # Update particle overlay
+        self.detected_particles = results['particles']
+        self.image_viewer.set_particles(results['particles'])
 
         # Update viewers
         self.track_viewer.set_data(
@@ -338,7 +367,12 @@ class MainWindow(QMainWindow):
         )
         self.feature_viewer.set_features(results['features'])
 
-        self.status_bar.showMessage("Analysis complete")
+        # Update results tables
+        self.update_results_tables()
+
+        # Update status
+        n_particles = len(results['particles'])
+        self.status_bar.showMessage(f"Analysis complete - Detected {n_particles} particles")
 
     def analysis_error(self, error_msg: str):
         """Handle analysis error"""
@@ -453,7 +487,14 @@ class MainWindow(QMainWindow):
         )
         self.feature_viewer.set_features(results['features'])
 
-        self.status_bar.showMessage("Analysis complete")
+        # Update results tables
+        self.update_results_tables()
+
+        # Store particle data
+        if 'particles' not in results:
+            results['particles'] = self.detected_particles
+
+        self.status_bar.showMessage(f"Tracking complete - {len(results['tracks'])} tracks identified")
 
     def stop_current(self):
         """Stop current operation"""
@@ -462,3 +503,428 @@ class MainWindow(QMainWindow):
         if self.tracking_worker and self.tracking_worker.isRunning():
             self.tracking_worker.stop()
         self.stop_action.setEnabled(False)
+
+
+    def setup_menubar(self):
+        """Set up the application menu bar"""
+        menubar = self.menuBar()
+
+        # File Menu
+        file_menu = menubar.addMenu("File")
+
+        open_action = file_menu.addAction("Open File...")
+        open_action.triggered.connect(self.open_file)
+        open_action.setShortcut("Ctrl+O")
+
+        save_results_action = file_menu.addAction("Save Results...")
+        save_results_action.triggered.connect(self.save_results)
+        save_results_action.setShortcut("Ctrl+S")
+
+        file_menu.addSeparator()
+
+        export_movie_action = file_menu.addAction("Export Tracking Movie...")
+        export_movie_action.triggered.connect(self.export_movie)
+
+        file_menu.addSeparator()
+
+        save_settings_action = file_menu.addAction("Save Settings...")
+        save_settings_action.triggered.connect(self.save_settings)
+
+        load_settings_action = file_menu.addAction("Load Settings...")
+        load_settings_action.triggered.connect(self.load_settings)
+
+        file_menu.addSeparator()
+
+        exit_action = file_menu.addAction("Exit")
+        exit_action.triggered.connect(self.close)
+        exit_action.setShortcut("Ctrl+Q")
+
+        # Analysis Menu
+        analysis_menu = menubar.addMenu("Analysis")
+
+        detection_settings_action = analysis_menu.addAction("Particle Detection Settings...")
+        detection_settings_action.triggered.connect(self.show_detection_settings)
+
+        tracking_settings_action = analysis_menu.addAction("Tracking Settings...")
+        tracking_settings_action.triggered.connect(self.show_tracking_settings)
+
+        analysis_menu.addSeparator()
+
+        batch_process_action = analysis_menu.addAction("Batch Process...")
+        batch_process_action.triggered.connect(self.batch_process)
+
+        # View Menu
+        view_menu = menubar.addMenu("View")
+
+        # Create overlay action
+        self.show_overlay_action = view_menu.addAction("Show Particle Overlay")
+        self.show_overlay_action.setCheckable(True)
+        # Initialize checked state from the button
+        self.show_overlay_action.setChecked(self.image_viewer.show_particles_btn.isChecked())
+        # Connect the action to the button
+        self.show_overlay_action.triggered.connect(self.image_viewer.show_particles_btn.setChecked)
+        # And connect the button back to the action
+        self.image_viewer.show_particles_btn.toggled.connect(self.show_overlay_action.setChecked)
+
+        view_menu.addSeparator()
+
+        self.show_tracks_action = view_menu.addAction("Show Tracks")
+        self.show_tracks_action.setCheckable(True)
+        self.show_tracks_action.setChecked(True)
+        self.show_tracks_action.triggered.connect(self.track_viewer.setVisible)
+
+        reset_view_action = view_menu.addAction("Reset View")
+        reset_view_action.triggered.connect(self.reset_view)
+
+        # Help Menu
+        help_menu = menubar.addMenu("Help")
+
+        help_action = help_menu.addAction("Help Contents")
+        help_action.triggered.connect(self.show_help)
+        help_action.setShortcut("F1")
+
+        help_menu.addSeparator()
+
+        about_action = help_menu.addAction("About")
+        about_action.triggered.connect(self.show_about)
+
+        documentation_action = help_menu.addAction("Documentation")
+        documentation_action.triggered.connect(self.show_documentation)
+
+        # Optional: Add keyboard shortcuts
+        shortcuts = QShortcut(QKeySequence("Ctrl+H"), self)
+        shortcuts.activated.connect(self.show_help)
+
+    def save_results(self):
+        """Save analysis results"""
+        if not hasattr(self, 'current_results') or not self.current_results:
+            QMessageBox.warning(self, "No Results", "No analysis results to save.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Results",
+            "",
+            "Excel Files (*.xlsx);;CSV Files (*.csv);;All Files (*.*)"
+        )
+
+        if file_path:
+            try:
+                writer = DataWriter()
+                writer.write_analysis_summary(
+                    self.current_results['tracks'],
+                    self.current_results['features'],
+                    file_path
+                )
+                self.status_bar.showMessage(f"Results saved to {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error saving results: {str(e)}")
+
+    def export_movie(self):
+        """Export tracking movie"""
+        if not hasattr(self, 'current_results') or not self.current_results:
+            QMessageBox.warning(self, "No Results", "No tracks to export.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Movie",
+            "",
+            "MP4 Files (*.mp4);;AVI Files (*.avi);;All Files (*.*)"
+        )
+
+        if file_path:
+            try:
+                from ..visualization.plot_utils import TrackVisualizer
+                visualizer = TrackVisualizer()
+                visualizer.create_track_movie(
+                    self.current_results['tracks'],
+                    file_path,
+                    fps=10,
+                    tail_length=10
+                )
+                self.status_bar.showMessage(f"Movie exported to {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error exporting movie: {str(e)}")
+
+    def show_detection_settings(self):
+        """Show particle detection settings dialog"""
+        current_settings = {
+            'min_sigma': self.min_sigma_spin.value(),
+            'max_sigma': self.max_sigma_spin.value(),
+            'threshold_rel': self.threshold_spin.value(),
+            'exclude_border': True
+        }
+
+        dialog = SettingsDialog(current_settings, self)
+        if dialog.exec():
+            new_settings = dialog.get_settings()
+            # Update spinboxes
+            self.min_sigma_spin.setValue(new_settings['min_sigma'])
+            self.max_sigma_spin.setValue(new_settings['max_sigma'])
+            self.threshold_spin.setValue(new_settings['threshold_rel'])
+
+    def show_tracking_settings(self):
+        """Show particle tracking settings dialog"""
+        current_settings = {
+            'max_distance': self.max_distance_spin.value(),
+            'max_gap': self.max_gap_spin.value(),
+            'min_track_length': self.min_length_spin.value()
+        }
+
+        dialog = SettingsDialog(current_settings, self)
+        if dialog.exec():
+            new_settings = dialog.get_settings()
+            # Update spinboxes
+            self.max_distance_spin.setValue(new_settings['max_distance'])
+            self.max_gap_spin.setValue(new_settings['max_gap'])
+            self.min_length_spin.setValue(new_settings['min_track_length'])
+
+    def toggle_overlay(self, checked: bool):
+        """Toggle particle overlay visibility"""
+        self.image_viewer.show_particles_btn.setChecked(checked)
+
+    def reset_view(self):
+        """Reset image view to default"""
+        if self.image_viewer.image_data is not None:
+            self.image_viewer.view_widget.setImage(self.image_viewer.image_data)
+            self.image_viewer.update_display()
+
+
+    def show_documentation(self):
+        """Show documentation"""
+        # Could open web browser to documentation or show PDF
+        QMessageBox.information(
+            self,
+            "Documentation",
+            "Documentation available at: [Your documentation URL]"
+        )
+
+    def connect_actions(self):
+        """Connect menu actions to slots"""
+        # Update viewer connections
+        self.image_viewer.frame_changed.connect(self.track_viewer.set_current_frame)
+        self.track_viewer.track_selected.connect(self.show_track_details)
+
+        # Note: Overlay connections will be made in setup_menubar
+
+    def show_track_details(self, track_id: int):
+        """Show details for selected track"""
+        if hasattr(self, 'current_results') and self.current_results:
+            track = next((t for t in self.current_results['tracks']
+                         if t.id == track_id), None)
+            if track:
+                # Could show track details in a new dialog or panel
+                self.status_bar.showMessage(f"Selected Track {track_id}: "
+                                          f"{len(track.particles)} particles")
+
+    def save_settings(self):
+        """Save current settings to file"""
+        settings = {
+            'detection': {
+                'min_sigma': self.min_sigma_spin.value(),
+                'max_sigma': self.max_sigma_spin.value(),
+                'threshold_rel': self.threshold_spin.value()
+            },
+            'tracking': {
+                'max_distance': self.max_distance_spin.value(),
+                'max_gap': self.max_gap_spin.value(),
+                'min_track_length': self.min_length_spin.value()
+            }
+        }
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Settings",
+            "",
+            "JSON Files (*.json);;All Files (*.*)"
+        )
+
+        if file_path:
+            try:
+                import json
+                with open(file_path, 'w') as f:
+                    json.dump(settings, f, indent=4)
+                self.status_bar.showMessage(f"Settings saved to {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error saving settings: {str(e)}")
+
+    def load_settings(self):
+        """Load settings from file"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Settings",
+            "",
+            "JSON Files (*.json);;All Files (*.*)"
+        )
+
+        if file_path:
+            try:
+                import json
+                with open(file_path, 'r') as f:
+                    settings = json.load(f)
+
+                # Update detection settings
+                det_settings = settings.get('detection', {})
+                self.min_sigma_spin.setValue(det_settings.get('min_sigma', 1.0))
+                self.max_sigma_spin.setValue(det_settings.get('max_sigma', 3.0))
+                self.threshold_spin.setValue(det_settings.get('threshold_rel', 0.2))
+
+                # Update tracking settings
+                track_settings = settings.get('tracking', {})
+                self.max_distance_spin.setValue(track_settings.get('max_distance', 5.0))
+                self.max_gap_spin.setValue(track_settings.get('max_gap', 2))
+                self.min_length_spin.setValue(track_settings.get('min_track_length', 3))
+
+                self.status_bar.showMessage(f"Settings loaded from {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error loading settings: {str(e)}")
+
+    def setup_results_tables(self):
+        """Set up results table views"""
+        # Create Tables tab
+        tables_tab = QWidget()
+        tables_layout = QVBoxLayout(tables_tab)
+
+        # Create inner tab widget for tracks and features tables
+        table_tabs = QTabWidget()
+
+        # Tracks table
+        self.tracks_table = QTableWidget()
+        self.tracks_table.setColumnCount(7)
+        self.tracks_table.setHorizontalHeaderLabels([
+            'Track ID', 'Frame', 'X', 'Y', 'Intensity',
+            'Start Frame', 'End Frame'
+        ])
+        table_tabs.addTab(self.tracks_table, "Tracks")
+
+        # Features table
+        self.features_table = QTableWidget()
+        self.features_table.setColumnCount(10)
+        self.features_table.setHorizontalHeaderLabels([
+            'Track ID', 'Diffusion Coefficient', 'Alpha',
+            'Radius Gyration', 'Asymmetry', 'Fractal Dimension',
+            'Straightness', 'Mean Velocity', 'Mean Acceleration',
+            'Confinement Ratio'
+        ])
+        table_tabs.addTab(self.features_table, "Features")
+
+        tables_layout.addWidget(table_tabs)
+
+        # Add filter controls
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Filter:"))
+        self.filter_edit = QLineEdit()
+        self.filter_edit.setPlaceholderText("Enter filter text...")
+        self.filter_edit.textChanged.connect(self.filter_tables)
+        filter_layout.addWidget(self.filter_edit)
+
+        # Add export button
+        export_btn = QPushButton("Export to Excel")
+        export_btn.clicked.connect(self.export_tables)
+        filter_layout.addWidget(export_btn)
+
+        tables_layout.addLayout(filter_layout)
+
+        return tables_tab
+
+    def update_results_tables(self):
+        """Update tables with current results"""
+        if not hasattr(self, 'current_results') or not self.current_results:
+            return
+
+        # Update tracks table
+        tracks = self.current_results['tracks']
+        self.tracks_table.setRowCount(0)  # Clear existing rows
+        row = 0
+        for track in tracks:
+            for particle in track.particles:
+                self.tracks_table.insertRow(row)
+                self.tracks_table.setItem(row, 0, QTableWidgetItem(str(track.id)))
+                self.tracks_table.setItem(row, 1, QTableWidgetItem(str(particle.frame)))
+                self.tracks_table.setItem(row, 2, QTableWidgetItem(f"{particle.x:.2f}"))
+                self.tracks_table.setItem(row, 3, QTableWidgetItem(f"{particle.y:.2f}"))
+                self.tracks_table.setItem(row, 4, QTableWidgetItem(f"{particle.intensity:.2f}"))
+                self.tracks_table.setItem(row, 5, QTableWidgetItem(str(track.start_frame)))
+                self.tracks_table.setItem(row, 6, QTableWidgetItem(str(track.end_frame)))
+                row += 1
+
+        # Update features table
+        features = self.current_results['features']
+        self.features_table.setRowCount(len(features))
+        for i, feature in enumerate(features):
+            self.features_table.setItem(i, 0, QTableWidgetItem(str(feature.track_id)))
+            self.features_table.setItem(i, 1, QTableWidgetItem(f"{feature.diffusion_coefficient:.4f}"))
+            self.features_table.setItem(i, 2, QTableWidgetItem(f"{feature.alpha:.4f}"))
+            self.features_table.setItem(i, 3, QTableWidgetItem(f"{feature.radius_gyration:.4f}"))
+            self.features_table.setItem(i, 4, QTableWidgetItem(f"{feature.asymmetry:.4f}"))
+            self.features_table.setItem(i, 5, QTableWidgetItem(f"{feature.fractal_dimension:.4f}"))
+            self.features_table.setItem(i, 6, QTableWidgetItem(f"{feature.straightness:.4f}"))
+            self.features_table.setItem(i, 7, QTableWidgetItem(f"{feature.mean_velocity:.4f}"))
+            self.features_table.setItem(i, 8, QTableWidgetItem(f"{feature.mean_acceleration:.4f}"))
+            self.features_table.setItem(i, 9, QTableWidgetItem(f"{feature.confinement_ratio:.4f}"))
+
+        # Enable sorting
+        self.tracks_table.setSortingEnabled(True)
+        self.features_table.setSortingEnabled(True)
+
+    def filter_tables(self, text):
+        """Filter table contents"""
+        for table in [self.tracks_table, self.features_table]:
+            for row in range(table.rowCount()):
+                show_row = False
+                for col in range(table.columnCount()):
+                    item = table.item(row, col)
+                    if item and text.lower() in item.text().lower():
+                        show_row = True
+                        break
+                table.setRowHidden(row, not show_row)
+
+    def export_tables(self):
+        """Export tables to Excel"""
+        if not hasattr(self, 'current_results') or not self.current_results:
+            QMessageBox.warning(self, "No Data", "No results to export.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Tables",
+            "",
+            "Excel Files (*.xlsx);;CSV Files (*.csv);;All Files (*.*)"
+        )
+
+        if file_path:
+            try:
+                writer = DataWriter()
+                writer.write_analysis_summary(
+                    self.current_results['tracks'],
+                    self.current_results['features'],
+                    file_path
+                )
+                self.status_bar.showMessage(f"Tables exported to {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error exporting tables: {str(e)}")
+
+    def show_help(self):
+        """Show help dialog"""
+        help_dialog = HelpDialog(self)
+        help_dialog.exec()
+
+    def show_about(self):
+        """Show about dialog"""
+        QMessageBox.about(
+            self,
+            "About Particle Analysis",
+            f"""<h3>Particle Analysis</h3>
+            <p>Version: 1.0.0</p>
+            <p>A tool for detecting and tracking particles in fluorescence microscopy data.</p>
+            <p>Features:</p>
+            <ul>
+                <li>Particle detection using Gaussian fitting</li>
+                <li>Particle tracking with nearest-neighbor linking</li>
+                <li>Feature calculation and analysis</li>
+                <li>Interactive visualization</li>
+            </ul>
+            <p>Created by: George Dickinson & Claude AI</p>
+            """
+        )
