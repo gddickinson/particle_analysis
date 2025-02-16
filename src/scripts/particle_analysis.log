@@ -1,0 +1,17 @@
+2025-02-15 13:59:15,177 - particle_analysis.__main__ - INFO - Starting Particle Analysis Application
+2025-02-15 14:18:47,022 - particle_analysis.__main__ - INFO - Starting Particle Analysis Application
+2025-02-15 16:10:43,680 - particle_analysis.__main__ - INFO - Starting Particle Analysis Application
+2025-02-15 16:15:10,333 - particle_analysis.__main__ - INFO - Starting Particle Analysis Application
+2025-02-15 16:17:34,497 - particle_analysis.io.writers - INFO - Saved tracks to /Users/george/Documents/python_projects/particle_analysis/examples/GB_168_2022_03_14_HTEndothelial_BAPTA_plate1_8_bin5_tracks.csv
+2025-02-15 16:17:34,498 - particle_analysis.io.writers - INFO - Saved features to /Users/george/Documents/python_projects/particle_analysis/examples/GB_168_2022_03_14_HTEndothelial_BAPTA_plate1_8_bin5_features.csv
+2025-02-15 16:48:04,744 - particle_analysis.__main__ - INFO - Starting Particle Analysis Application
+2025-02-15 16:49:25,892 - particle_analysis.__main__ - INFO - Starting Particle Analysis Application
+2025-02-15 16:49:46,253 - particle_analysis.__main__ - INFO - Starting Particle Analysis Application
+2025-02-15 16:53:03,028 - particle_analysis.__main__ - INFO - Starting Particle Analysis Application
+2025-02-15 16:53:32,078 - particle_analysis.core.particle_detection - WARNING - Gaussian fitting failed: Optimal parameters not found: The maximum number of function evaluations is exceeded.
+2025-02-15 17:00:44,365 - particle_analysis.__main__ - INFO - Starting Particle Analysis Application
+2025-02-15 17:16:34,131 - particle_analysis.__main__ - INFO - Starting Particle Analysis Application
+2025-02-15 17:19:18,410 - particle_analysis.io.writers - INFO - Saved tracks to /Users/george/Documents/python_projects/particle_analysis/examples/GB_168_2022_03_14_HTEndothelial_BAPTA_plate1_8_bin5_tracks.csv
+2025-02-15 17:19:18,413 - particle_analysis.io.writers - INFO - Saved features to /Users/george/Documents/python_projects/particle_analysis/examples/GB_168_2022_03_14_HTEndothelial_BAPTA_plate1_8_bin5_features.csv
+2025-02-15 17:22:36,928 - particle_analysis.io.writers - INFO - Saved tracks to /Users/george/Documents/python_projects/particle_analysis/examples/GB_168_2022_03_14_HTEndothelial_BAPTA_plate1_8_bin5_tracks.csv
+2025-02-15 17:22:36,932 - particle_analysis.io.writers - INFO - Saved features to /Users/george/Documents/python_projects/particle_analysis/examples/GB_168_2022_03_14_HTEndothelial_BAPTA_plate1_8_bin5_features.csv
