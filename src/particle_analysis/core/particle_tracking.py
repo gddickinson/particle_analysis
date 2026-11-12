@@ -149,59 +149,38 @@ class ParticleTracker:
                                 current_particles: List[Particle],
                                 frame: int) -> None:
         """Link current frame particles to existing tracks"""
-        # Get active tracks (those that could potentially link to current particles)
+        # Active tracks: those whose last particle is at most max_gap missing frames back
+        # (frame - end_frame - 1 <= max_gap; max_gap=0 links consecutive frames only)
         active_tracks = [
             track for track in current_tracks
-            if track.end_frame >= frame - self.max_gap
+            if track.end_frame >= frame - self.max_gap - 1
         ]
-        
+
         if not active_tracks or not current_particles:
-            return
-            
-        # Build KDTree for current particles
-        current_positions = np.array([
-            [p.x, p.y] for p in current_particles
-        ])
-        tree = KDTree(current_positions)
-        
-        # Get last known positions of active tracks
-        track_positions = np.array([
-            [t.particles[-1].x, t.particles[-1].y]
-            for t in active_tracks
-        ])
-        
-        # Query tree for nearest neighbors
-        distances, indices = tree.query(
-            track_positions,
-            k=1,
-            return_distance=True
-        )
-        
-        # Create assignment pairs based on distance threshold
-        assignments = []
+            # (unassigned particles still start new tracks below)
+            assignments = []
+        else:
+            assignments = self._candidate_pairs(active_tracks, current_particles)
+
+        # Greedy assignment over all (track, particle) pairs within max_distance, closest first, so a track
+        # whose nearest particle is taken by a closer track can still take its next candidate
         used_particles = set()
-        
-        for track_idx, (dist, particle_idx) in enumerate(zip(distances, indices)):
-            if dist[0] <= self.max_distance:
-                assignments.append((track_idx, particle_idx[0], dist[0]))
-                
-        # Sort assignments by distance
-        assignments.sort(key=lambda x: x[2])
-        
-        # Assign particles to tracks
-        for track_idx, particle_idx, _ in assignments:
-            if particle_idx not in used_particles:
-                track = active_tracks[track_idx]
-                particle = current_particles[particle_idx]
-                
-                # Fill any gaps
-                self._fill_track_gaps(track, particle)
-                
-                # Add particle to track
-                track.particles.append(particle)
-                track.end_frame = frame
-                used_particles.add(particle_idx)
-                
+        used_tracks = set()
+        for _, track_idx, particle_idx in assignments:
+            if particle_idx in used_particles or track_idx in used_tracks:
+                continue
+            track = active_tracks[track_idx]
+            particle = current_particles[particle_idx]
+
+            # Fill any gaps
+            self._fill_track_gaps(track, particle)
+
+            # Add particle to track
+            track.particles.append(particle)
+            track.end_frame = frame
+            used_particles.add(particle_idx)
+            used_tracks.add(track_idx)
+
         # Create new tracks for unassigned particles
         for i, particle in enumerate(current_particles):
             if i not in used_particles:
@@ -213,6 +192,28 @@ class ParticleTracker:
                 )
                 current_tracks.append(track)
     
+    def _candidate_pairs(self, tracks: List[Track],
+                         particles: List[Particle]) -> List[Tuple[float, int, int]]:
+        """All (distance, track index, particle index) with distance <= max_distance, sorted by distance
+        (ties by track then particle index). The KDTree only finds the candidates; distances are computed
+        as sqrt(dx*dx + dy*dy) so the order is reproducible (the web JS port uses the same formula)."""
+        current_positions = np.array([[p.x, p.y] for p in particles])
+        track_positions = np.array([[t.particles[-1].x, t.particles[-1].y] for t in tracks])
+        tree = KDTree(current_positions)
+        # small margin so no pair at exactly max_distance is lost to rounding in the tree
+        candidates = tree.query_radius(track_positions, r=self.max_distance * (1 + 1e-9) + 1e-12)
+        pairs = []
+        for ti, idx in enumerate(candidates):
+            tx, ty = track_positions[ti]
+            for pi in idx:
+                dx = current_positions[pi, 0] - tx
+                dy = current_positions[pi, 1] - ty
+                d = float(np.sqrt(dx * dx + dy * dy))
+                if d <= self.max_distance:
+                    pairs.append((d, ti, int(pi)))
+        pairs.sort()
+        return pairs
+
     def _fill_track_gaps(self, track: Track, next_particle: Particle) -> None:
         """Fill gaps in track with interpolated particles"""
         last_particle = track.particles[-1]

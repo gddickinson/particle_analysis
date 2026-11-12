@@ -226,3 +226,31 @@ def test_multiple_nearby_particles():
     track1_x = tracks[0].positions[:, 0]
     track2_x = tracks[1].positions[:, 0]
     assert np.all(np.abs(track1_x - track2_x) >= 1.0)  # Should maintain separation
+
+def _p(frame, x, y=10.0):
+    return Particle(frame=frame, x=float(x), y=float(y), intensity=100.0, sigma=1.5, snr=10.0,
+                    frame_size=(100, 100))
+
+
+def test_max_gap_zero_links_consecutive_frames():
+    """Regression: with max_gap=0 tracks were never extended (end_frame >= frame was required)."""
+    tracks = ParticleTracker(max_distance=5.0, max_gap=0, min_track_length=3).track_particles(
+        [_p(f, 10 + f) for f in range(5)])
+    assert len(tracks) == 1 and tracks[0].length == 5
+
+
+def test_max_gap_bridges_that_many_missing_frames():
+    """Regression: max_gap=2 bridged only one missing frame. Frames 2 and 3 missing -> still one track."""
+    tracker = ParticleTracker(max_distance=10.0, max_gap=2, min_track_length=3)
+    tracks = tracker.track_particles([_p(f, 10 + f) for f in (0, 1, 4, 5)])
+    assert len(tracks) == 1 and [p.frame for p in tracks[0].particles] == [0, 1, 2, 3, 4, 5]
+    # three missing frames is more than max_gap: two separate pieces (too short to keep)
+    assert tracker.track_particles([_p(f, 10 + f) for f in (0, 1, 5, 6)]) == []
+
+
+def test_track_takes_next_candidate_when_nearest_is_claimed():
+    """Regression: each track only looked at its single nearest particle, so a track whose nearest particle
+    was claimed by a closer track was cut even with another particle in range."""
+    parts = [_p(0, 10), _p(0, 11), _p(1, 11), _p(1, 12)]
+    tracks = ParticleTracker(max_distance=2.0, max_gap=0, min_track_length=2).track_particles(parts)
+    assert sorted(t.length for t in tracks) == [2, 2]
