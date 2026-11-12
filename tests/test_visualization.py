@@ -1,138 +1,55 @@
 # tests/test_visualization.py
+"""Offscreen smoke tests of the Qt viewers in visualization/viewers.py (TrackViewer, FeatureViewer).
 
-[previous content remains the same until the feature viewer test...]
+The previous version of this file was a truncated paste (a SyntaxError on line 3) that tested a TrackVisualizer class
+the package does not have and needed pytest-qt. These tests use a plain offscreen QApplication instead and are skipped
+when PyQt6/pyqtgraph are not installed.
+"""
+import os
 
-def test_feature_viewer(qtbot, sample_features):
-    """Test FeatureViewer widget"""
-    viewer = FeatureViewer()
-    qtbot.addWidget(viewer)
-    
-    # Test feature setting
-    viewer.set_features(sample_features)
-    assert viewer.feature_combo.count() > 0
-    
-    # Test feature selection
-    feature_name = viewer.feature_combo.currentText()
-    assert feature_name != ""
-    
-    # Test display update
-    viewer.update_display()
-    assert len(viewer.plot_widget.plotItem.items) > 0
-    
-    # Test feature selection signal
-    with qtbot.waitSignal(viewer.feature_selected) as blocker:
-        viewer.feature_combo.setCurrentText('alpha')
-    assert blocker.args == ['alpha']
-    
-    # Test clearing
+import numpy as np
+import pytest
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+QtWidgets = pytest.importorskip("PyQt6.QtWidgets")
+pytest.importorskip("pyqtgraph")
+
+from particle_analysis.core.feature_calculation import FeatureCalculator  # noqa: E402
+from particle_analysis.core.particle_detection import Particle  # noqa: E402
+from particle_analysis.core.particle_tracking import Track  # noqa: E402
+from particle_analysis.visualization.viewers import FeatureViewer, TrackViewer  # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    return QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+
+@pytest.fixture
+def sample_tracks():
+    rng = np.random.default_rng(1)
+    tracks = []
+    for tid in range(3):
+        xy = np.cumsum(rng.normal(0, 1, (12, 2)), axis=0) + 20 * tid
+        particles = [Particle(frame=i, x=float(x), y=float(y), intensity=100.0, sigma=1.5, snr=10.0,
+                              frame_size=(100, 100)) for i, (x, y) in enumerate(xy)]
+        tracks.append(Track(id=tid, particles=particles, start_frame=0, end_frame=11))
+    return tracks
+
+
+def test_track_viewer_draws_tracks(qapp, sample_tracks):
+    viewer = TrackViewer()
+    viewer.set_data(sample_tracks)
+    viewer.set_current_frame(11)
+    assert set(viewer.track_plots) == {0, 1, 2}
     viewer.clear()
-    assert len(viewer.plot_widget.plotItem.items) == 0
+    assert not viewer.track_plots
 
-def test_visualization_error_handling(sample_tracks):
-    """Test error handling in visualization"""
-    visualizer = TrackVisualizer()
-    
-    # Test with empty track list
-    ax = visualizer.plot_tracks([])
-    assert ax is not None
-    
-    # Test with invalid feature names
-    ax = visualizer.plot_tracks(sample_tracks, color_by='invalid_feature')
-    assert ax is not None
-    
-    # Test movie creation with invalid path
-    success = visualizer.create_track_movie(
-        sample_tracks,
-        "/invalid/path/movie.mp4"
-    )
-    assert not success
 
-def test_interactive_track_selection(qtbot, sample_tracks):
-    """Test interactive track selection in viewer"""
-    viewer = TrackViewer()
-    qtbot.addWidget(viewer)
-    
-    # Set up signal capture
-    selected_tracks = []
-    viewer.track_selected.connect(lambda x: selected_tracks.append(x))
-    
-    # Add tracks
-    viewer.set_data(sample_tracks)
-    
-    # Simulate track selection
-    plot_item = next(iter(viewer.track_plots.values()))
-    qtbot.mouseClick(viewer.plot_widget.viewport(), Qt.MouseButton.LeftButton,
-                    pos=plot_item.mapToView(plot_item.getData()[0][0]))
-    
-    # Check if signal was emitted
-    assert len(selected_tracks) > 0
-
-def test_feature_distribution_styling(sample_features):
-    """Test visualization styling options"""
-    visualizer = TrackVisualizer(colormap='plasma', dpi=150, style='seaborn')
-    
-    # Test custom styling
-    fig = visualizer.plot_track_feature_distributions(sample_features)
-    assert fig is not None
-    assert fig.dpi == 150
-
-def test_viewer_synchronization(qtbot):
-    """Test synchronization between track and feature viewers"""
-    track_viewer = TrackViewer()
-    feature_viewer = FeatureViewer()
-    qtbot.addWidget(track_viewer)
-    qtbot.addWidget(feature_viewer)
-    
-    # Create synchronized displays
-    def sync_viewers(feature_name):
-        track_viewer.color_combo.setCurrentText(feature_name)
-        
-    feature_viewer.feature_selected.connect(sync_viewers)
-    
-    # Test synchronization
-    with qtbot.waitSignal(track_viewer.track_selected):
-        feature_viewer.feature_combo.setCurrentText('diffusion_coefficient')
-    
-    assert track_viewer.color_combo.currentText() == 'diffusion_coefficient'
-
-def test_real_time_updates(qtbot, sample_tracks):
-    """Test real-time visualization updates"""
-    viewer = TrackViewer()
-    qtbot.addWidget(viewer)
-    
-    # Set initial data
-    viewer.set_data(sample_tracks)
-    initial_plot_count = len(viewer.plot_widget.plotItem.items)
-    
-    # Add new track
-    new_particles = [
-        Particle(frame=i, x=float(i), y=float(i), intensity=100.0,
-                sigma=1.5, snr=10.0, frame_size=(100, 100))
-        for i in range(5)
-    ]
-    new_track = Track(id=3, particles=new_particles,
-                     start_frame=0, end_frame=4)
-    
-    # Update visualization
-    viewer.set_data(sample_tracks + [new_track])
-    
-    # Check if new track was added
-    assert len(viewer.plot_widget.plotItem.items) > initial_plot_count
-
-def test_viewer_performance(qtbot, sample_tracks):
-    """Test viewer performance with large datasets"""
-    viewer = TrackViewer()
-    qtbot.addWidget(viewer)
-    
-    # Create large dataset
-    large_tracks = sample_tracks * 100  # Multiply existing tracks
-    
-    # Measure time to update display
-    import time
-    start_time = time.time()
-    viewer.set_data(large_tracks)
-    viewer.update_display()
-    end_time = time.time()
-    
-    # Performance should be reasonable
-    assert end_time - start_time < 1.0  # Should update in less than 1 second
+def test_feature_viewer_lists_numeric_features(qapp, sample_tracks):
+    features = [FeatureCalculator().calculate_track_features(t) for t in sample_tracks]
+    viewer = FeatureViewer()
+    viewer.set_features(features)
+    names = [viewer.feature_combo.itemText(i) for i in range(viewer.feature_combo.count())]
+    assert "diffusion_coefficient" in names and "msd_values" not in names
+    assert "Mean:" in viewer.stats_label.text()
