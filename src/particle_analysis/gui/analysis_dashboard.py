@@ -15,7 +15,8 @@ import logging
 
 from ..core.particle_tracking import Track
 from ..core.feature_calculation import TrackFeatures
-from ..analysis.diffusion import DiffusionAnalyzer, MotionType
+from ..analysis.diffusion import MotionType
+from .units_widget import UnitsWidget
 from ..analysis.statistics import TrackAnalyzer
 
 # Set up logging
@@ -78,21 +79,21 @@ class QualityMetrics(QGroupBox):
         lengths = [len(t.particles) for t in tracks]
         y, x = np.histogram(lengths, bins='auto')
         self.length_plot.clear()
-        self.length_plot.plot(x[:-1], y, stepMode="center", fillLevel=0,
+        self.length_plot.plot(x, y, stepMode="center", fillLevel=0,
                             brush=(0,0,255,150))
 
         # SNR distribution
         snr_values = [p.snr for t in tracks for p in t.particles]
         y, x = np.histogram(snr_values, bins='auto')
         self.snr_plot.clear()
-        self.snr_plot.plot(x[:-1], y, stepMode="center", fillLevel=0,
+        self.snr_plot.plot(x, y, stepMode="center", fillLevel=0,
                           brush=(0,255,0,150))
 
         # Localization precision
         precisions = [p.sigma for t in tracks for p in t.particles]
         y, x = np.histogram(precisions, bins='auto')
         self.precision_plot.clear()
-        self.precision_plot.plot(x[:-1], y, stepMode="center", fillLevel=0,
+        self.precision_plot.plot(x, y, stepMode="center", fillLevel=0,
                                brush=(255,0,0,150))
 
 class AnalysisDashboard(QWidget):
@@ -143,6 +144,11 @@ class AnalysisDashboard(QWidget):
 
         layout.addLayout(toolbar)
 
+        # Physical units for the motion analysis (no defaults: set by set_data from metadata, or entered)
+        self.units = UnitsWidget()
+        self.units.changed.connect(self.update_display)
+        layout.addWidget(self.units)
+
         # Create scrollable area for dashboard
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -160,7 +166,7 @@ class AnalysisDashboard(QWidget):
         self.mean_length_card = MetricCard("Mean Track Length", "0")
         metrics_group.addWidget(self.mean_length_card)
 
-        self.mean_diffusion_card = MetricCard("Mean Diffusion Coef", "0")
+        self.mean_diffusion_card = MetricCard("Mean D, track features (px²/frame^α)", "0")
         metrics_group.addWidget(self.mean_diffusion_card)
 
         self.mean_snr_card = MetricCard("Mean SNR", "0")
@@ -224,10 +230,16 @@ class AnalysisDashboard(QWidget):
     def set_data(self,
                  tracks: List[Track],
                  features: List[TrackFeatures],
-                 condition: Optional[str] = None):
-        """Set data to display"""
+                 condition: Optional[str] = None,
+                 pixel_size: Optional[float] = None,
+                 frame_interval: Optional[float] = None,
+                 units_source: Optional[str] = None):
+        """Set data to display. pixel_size (um) and frame_interval (s), e.g. from the file's metadata, preset the
+        units; if either is None it stays "not set" and the motion analysis waits until the user enters it."""
         if condition is None:
             condition = "Default"
+        if pixel_size is not None or frame_interval is not None:
+            self.units.set_units(pixel_size, frame_interval, units_source)
 
         self.conditions[condition] = {
             'tracks': tracks,
@@ -254,7 +266,7 @@ class AnalysisDashboard(QWidget):
             f"{np.mean([len(t.particles) for t in tracks]):.1f}"
         )
         self.mean_diffusion_card.update_value(
-            f"{np.mean([f.diffusion_coefficient for f in features]):.3f}"
+            f"{np.nanmean([f.diffusion_coefficient for f in features]):.3f}" if features else "–"
         )
         self.mean_snr_card.update_value(
             f"{np.mean([p.snr for t in tracks for p in t.particles]):.1f}"
@@ -291,15 +303,23 @@ class AnalysisDashboard(QWidget):
     def update_motion_analysis(self,
                              tracks: List[Track],
                              features: List[TrackFeatures]):
-        """Update motion analysis plots"""
-        analyzer = DiffusionAnalyzer()
+        """Update motion analysis plots (only with the pixel size and frame interval set)"""
+        analyzer = self.units.analyzer()
+        self.motion_plot.setTitle(f"Motion Types ({self.units.describe()})")
+        if analyzer is None:
+            self.motion_plot.clear()
+            self.msd_plot.clear()
+            self.set_status(self.units.describe())
+            return
+        self.msd_plot.setLabel('left', 'MSD', units='µm²')
+        self.msd_plot.setLabel('bottom', 'Time lag', units='s')
 
         # Motion type distribution
         motion_types = [analyzer.classify_motion(track) for track in tracks]
         type_counts = {t: motion_types.count(t) for t in MotionType}
 
         self.motion_plot.clear()
-        x = np.arange(len(MotionType))
+        x = np.arange(len(MotionType) + 1) - 0.5  # bar edges around the tick positions 0..n-1
         y = [type_counts[t] for t in MotionType]
         self.motion_plot.plot(x, y, stepMode="center", fillLevel=0,
                             brush=(0,0,255,150))
@@ -333,8 +353,13 @@ class AnalysisDashboard(QWidget):
         if not x_feature or not y_feature:
             return
 
-        x_values = [getattr(f, x_feature) for f in features]
-        y_values = [getattr(f, y_feature) for f in features]
+        pairs = [(getattr(f, x_feature), getattr(f, y_feature)) for f in features]
+        pairs = [(a, b) for a, b in pairs if np.isfinite(a) and np.isfinite(b)]
+        if len(pairs) < 2:
+            self.correlation_plot.clear()
+            return
+        x_values = [a for a, _ in pairs]
+        y_values = [b for _, b in pairs]
 
         self.correlation_plot.clear()
         self.correlation_plot.plot(x_values, y_values, pen=None, symbol='o',
@@ -392,6 +417,10 @@ class AnalysisDashboard(QWidget):
 
         tracks = self.conditions[condition]['tracks']
         features = self.conditions[condition]['features']
+        analyzer = self.units.analyzer()
+        if analyzer is None:
+            self.set_status("Not exported: " + self.units.describe())
+            return
 
         # Create summary DataFrame
         track_data = []
@@ -421,10 +450,10 @@ class AnalysisDashboard(QWidget):
         }
         quality_df = pd.DataFrame([quality_data])
 
-        # Calculate motion type distribution
-        analyzer = DiffusionAnalyzer()
+        # Calculate motion type distribution (with the units it was computed in)
         motion_types = [analyzer.classify_motion(track) for track in tracks]
         motion_dist = {t.value: motion_types.count(t) for t in MotionType}
+        motion_dist.update(pixel_size_um=analyzer.pixel_size, frame_interval_s=analyzer.frame_interval)
         motion_df = pd.DataFrame([motion_dist])
 
         # Export to Excel

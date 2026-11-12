@@ -13,7 +13,9 @@ import logging
 from ..core.particle_tracking import Track
 from ..core.feature_calculation import TrackFeatures
 from ..visualization.viewers import TrackViewer, FeatureViewer
-from ..analysis.diffusion import DiffusionAnalyzer, MotionType
+from ..analysis.diffusion import MotionType
+from .units_widget import UnitsWidget
+from . import results_export
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -48,6 +50,12 @@ class ResultsViewer(QWidget):
         # Right panel - Results display
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
+
+        # Physical units for the MSD and motion analysis (no defaults: must be set or read from the file)
+        self.units = UnitsWidget()
+        self.units.changed.connect(self.update_msd_plot)
+        self.units.changed.connect(self.update_diffusion_analysis)
+        right_layout.addWidget(self.units)
 
         # Tabs for different views
         self.tabs = QTabWidget()
@@ -108,8 +116,8 @@ class ResultsViewer(QWidget):
 
         # MSD plot
         self.msd_plot = pg.PlotWidget()
-        self.msd_plot.setLabel('left', 'MSD')
-        self.msd_plot.setLabel('bottom', 'Time Lag')
+        self.msd_plot.setLabel('left', 'MSD', units='µm²')
+        self.msd_plot.setLabel('bottom', 'Time lag', units='s')
         msd_layout.addWidget(self.msd_plot)
 
         # Diffusion model controls
@@ -168,7 +176,7 @@ class ResultsViewer(QWidget):
         # Diffusion coefficient distribution
         self.diffusion_plot = pg.PlotWidget()
         self.diffusion_plot.setLabel('left', 'Count')
-        self.diffusion_plot.setLabel('bottom', 'Diffusion Coefficient')
+        self.diffusion_plot.setLabel('bottom', 'D from track features (px²/frame^α)')
         diffusion_layout.addWidget(self.diffusion_plot)
 
         self.tabs.addTab(diffusion_tab, "Diffusion Analysis")
@@ -182,8 +190,13 @@ class ResultsViewer(QWidget):
     def set_data(self,
                  tracks: List[Track],
                  features: List[TrackFeatures],
-                 movie_data: Optional[np.ndarray] = None):
-        """Set data to display"""
+                 movie_data: Optional[np.ndarray] = None,
+                 pixel_size: Optional[float] = None,
+                 frame_interval: Optional[float] = None,
+                 units_source: Optional[str] = None):
+        """Set data to display. pixel_size (um) and frame_interval (s), e.g. from the file's metadata, preset the
+        units; if either is None it stays "not set" and the motion analysis waits for the user to enter it."""
+        self.units.set_units(pixel_size, frame_interval, units_source)
         self.tracks = tracks
         self.features = features
         self.movie_data = movie_data
@@ -268,7 +281,7 @@ class ResultsViewer(QWidget):
         )
         if self.features:
             self.mean_diffusion_label.setText(
-                f"Mean Diffusion Coef: {np.mean([f.diffusion_coefficient for f in self.features]):.3f}"
+                f"Mean D (px²/frame^α): {np.nanmean([f.diffusion_coefficient for f in self.features]):.3f}"
             )
 
         # Update track viewer
@@ -287,7 +300,7 @@ class ResultsViewer(QWidget):
         duration = (track.end_frame - track.start_frame) * 0.1  # Assuming 0.1s interval
         self.track_duration_label.setText(f"Duration: {duration:.1f}s")
         self.track_diffusion_label.setText(
-            f"Diffusion Coef: {feature.diffusion_coefficient:.3f}"
+            f"D (px²/frame^α): {feature.diffusion_coefficient:.3f}"
         )
 
         # Update track viewer
@@ -302,14 +315,16 @@ class ResultsViewer(QWidget):
             return
 
         track = next(t for t in self.tracks if t.id == self.current_track_id)
+        analyzer = self.units.analyzer()
+        if analyzer is None:
+            self.msd_plot.clear()
+            self.fit_params_label.setText(self.units.describe())
+            return
 
-        # Calculate MSD
-        analyzer = DiffusionAnalyzer()
+        # Calculate MSD and fit (generalised least squares, as in classify_motion)
         time_lags, msd_values = analyzer.calculate_msd(track)
-
-        # Fit selected model
-        fit_results = analyzer.fit_diffusion_models(time_lags, msd_values)
-        model_name = self.model_combo.currentText().lower().replace(" ", "_")
+        fit_results = analyzer.fit_diffusion_models(time_lags, msd_values, len(track.particles))
+        model_name = self.model_combo.currentText().split()[0].lower()  # normal/anomalous/confined/directed
 
         # Plot data and fit
         self.msd_plot.clear()
@@ -324,7 +339,7 @@ class ResultsViewer(QWidget):
             param_text = f"R² = {params['r_squared']:.3f}\n"
             for key, value in params.items():
                 if key not in ['fit_values', 'r_squared']:
-                    param_text += f"{key} = {value:.3f}\n"
+                    param_text += f"{key} = {value:.4g}\n"
             self.fit_params_label.setText(param_text)
 
     def update_feature_plot(self):
@@ -333,12 +348,18 @@ class ResultsViewer(QWidget):
             return
 
         feature_name = self.feature_combo.currentText()
-        values = [getattr(f, feature_name) for f in self.features]
+        if not feature_name:  # the combo is being cleared/refilled
+            return
+        values = [v for v in (getattr(f, feature_name) for f in self.features) if np.isfinite(v)]
+        if not values:
+            self.feature_plot.clear()
+            self.feature_stats_label.setText("No finite values")
+            return
 
         # Create histogram
         self.feature_plot.clear()
         y, x = np.histogram(values, bins='auto')
-        self.feature_plot.plot(x[:-1], y, stepMode="center", fillLevel=0,
+        self.feature_plot.plot(x, y, stepMode="center", fillLevel=0,
                              brush=(0,0,255,150))
 
         # Update statistics
@@ -355,8 +376,12 @@ class ResultsViewer(QWidget):
         """Update diffusion analysis plots"""
         if not self.tracks or not self.features:
             return
-
-        analyzer = DiffusionAnalyzer()
+        analyzer = self.units.analyzer()
+        if analyzer is None:
+            self.motion_plot.clear()
+            self.motion_plot.setTitle(self.units.describe())
+            return
+        self.motion_plot.setTitle(self.units.describe())
 
         # Motion type distribution
         motion_types = [analyzer.classify_motion(track) for track in self.tracks]
@@ -364,7 +389,7 @@ class ResultsViewer(QWidget):
 
         # Plot motion type distribution
         self.motion_plot.clear()
-        x = np.arange(len(MotionType))
+        x = np.arange(len(MotionType) + 1) - 0.5  # bar edges around the tick positions 0..n-1
         y = [type_counts[t] for t in MotionType]
         self.motion_plot.plot(x, y, stepMode="center", fillLevel=0,
                             brush=(0,0,255,150))
@@ -372,100 +397,23 @@ class ResultsViewer(QWidget):
         self.motion_plot.getAxis('bottom').setTicks(ticks)
 
         # Diffusion coefficient distribution
-        diff_coefs = [f.diffusion_coefficient for f in self.features]
+        diff_coefs = [f.diffusion_coefficient for f in self.features if np.isfinite(f.diffusion_coefficient)]
+        if not diff_coefs:
+            self.diffusion_plot.clear()
+            return
 
         self.diffusion_plot.clear()
         y, x = np.histogram(diff_coefs, bins='auto')
-        self.diffusion_plot.plot(x[:-1], y, stepMode="center", fillLevel=0,
+        self.diffusion_plot.plot(x, y, stepMode="center", fillLevel=0,
                                brush=(0,255,0,150))
 
     def export_results(self, directory: Path):
-        """Export analysis results"""
-        try:
-            # Create results directory
-            results_dir = directory / "analysis_results"
-            results_dir.mkdir(exist_ok=True)
-
-            # Export tracks
-            with open(results_dir / "tracks.csv", 'w') as f:
-                f.write("track_id,frame,x,y,intensity\n")
-                for track in self.tracks:
-                    for particle in track.particles:
-                        f.write(f"{track.id},{particle.frame},"
-                               f"{particle.x},{particle.y},"
-                               f"{particle.intensity}\n")
-
-            # Export features
-            with open(results_dir / "features.csv", 'w') as f:
-                if self.features:
-                    # Write header
-                    feature_dict = self.features[0].to_dict()
-                    headers = list(feature_dict.keys())
-                    f.write(",".join(headers) + "\n")
-
-                    # Write data
-                    for feature in self.features:
-                        feature_dict = feature.to_dict()
-                        values = [str(feature_dict[h]) for h in headers]
-                        f.write(",".join(values) + "\n")
-
-            # Export MSD analysis
-            if self.current_track_id is not None:
-                track = next(t for t in self.tracks
-                           if t.id == self.current_track_id)
-                analyzer = DiffusionAnalyzer()
-                time_lags, msd_values = analyzer.calculate_msd(track)
-
-                with open(results_dir / f"msd_track_{track.id}.csv", 'w') as f:
-                    f.write("time_lag,msd\n")
-                    for t, m in zip(time_lags, msd_values):
-                        f.write(f"{t},{m}\n")
-
-            # Export diffusion analysis
-            analyzer = DiffusionAnalyzer()
-            with open(results_dir / "diffusion_analysis.csv", 'w') as f:
-                f.write("track_id,motion_type,diffusion_coefficient\n")
-                for track, feature in zip(self.tracks, self.features):
-                    motion_type = analyzer.classify_motion(track)
-                    f.write(f"{track.id},{motion_type.value},"
-                           f"{feature.diffusion_coefficient}\n")
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Error exporting results: {str(e)}")
-            return False
+        """Export tracks, features and (with units set) MSD and motion analysis; see results_export.py"""
+        return results_export.export_results(self, directory)
 
     def save_plots(self, directory: Path):
-        """Save current plots"""
-        try:
-            # Create plots directory
-            plots_dir = directory / "plots"
-            plots_dir.mkdir(exist_ok=True)
-
-            # Save track overview
-            self.track_viewer.plot_widget.scene().save(
-                str(plots_dir / "track_overview.png"))
-
-            # Save MSD plot
-            self.msd_plot.scene().save(
-                str(plots_dir / "msd_analysis.png"))
-
-            # Save feature plot
-            self.feature_plot.scene().save(
-                str(plots_dir / "feature_analysis.png"))
-
-            # Save diffusion plots
-            self.motion_plot.scene().save(
-                str(plots_dir / "motion_types.png"))
-            self.diffusion_plot.scene().save(
-                str(plots_dir / "diffusion_coefficients.png"))
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Error saving plots: {str(e)}")
-            return False
+        """Save current plots; see results_export.py"""
+        return results_export.save_plots(self, directory)
 
     def copy_to_clipboard(self):
         """Copy current plot to clipboard"""

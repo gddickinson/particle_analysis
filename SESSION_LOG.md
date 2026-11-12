@@ -32,10 +32,19 @@
 - `ParticleDetector`: min_sigma/max_sigma bound the fitted width; sigma_steps trial widths give the start value.
 - Both former strict xfails pass (the confined test fixture now reaches its boundary within the analysed lags).
 
+### Units and spatial statistics (2026-11-12, second follow-up)
+- `calculate_spatial_statistics`: x bins from the width, y bins from the height (frame_size is (height, width));
+  velocity map averaged over steps, not points. Tested on a 64 x 128 frame.
+- GUI dashboard and results viewer: new `UnitsWidget` (pixel size um/px, frame interval s, start "not set", source
+  shown); the motion analysis, MSD plot and exports run only with both set, and exports carry them. Also fixed there:
+  histogram/motion plots crashed (pyqtgraph stepMode needs bin edges), the MSD model fit was never shown (combo text
+  did not match the model keys), save_plots always failed (GraphicsScene has no save()). Neither widget is opened by
+  MainWindow yet.
+- Tests: pytest-qt + PySide6 in the shared venv broke Qt test collection; pyproject sets qt_api = pyqt6 and the Qt
+  tests skip if the Qt stack cannot be imported.
+
 ### Still open (not changed)
-- `TrackAnalyzer.calculate_spatial_statistics` may mix axes for non-square frames (unused by the app).
-- The GUI dashboard uses DiffusionAnalyzer's default pixel size / frame interval (0.108 um, 0.1 s) silently.
-- `gui/main_window.py` (930 lines) and `gui/results_viewer.py` (508) exceed the 500-line budget.
+- `gui/main_window.py` (930 lines) exceeds the 500-line budget.
 
 ### Web interface
 - `src/particle_analysis/web/` (FastAPI, port 8129) + static site (GitHub Pages workflow). Pages: home, Detect,

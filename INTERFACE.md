@@ -17,7 +17,7 @@ Particle detection, tracking and diffusion analysis for fluorescence microscopy 
 | `io/writers.py` | `DataWriter`: particles/tracks/features CSV, analysis summary, batch results |
 | `visualization/viewers.py` | Qt widgets `TrackViewer`, `FeatureViewer` (pyqtgraph) |
 | `visualization/plot_utils.py` | `TrackVisualizer` (matplotlib: tracks, feature distributions, MSD curves, track movie) |
-| `gui/` | `main_window.py` (MainWindow, AnalysisWorker), `workers.py` (Detection/Tracking QThreads), `image_viewer.py`, `results_viewer.py`, `analysis_dashboard.py`, `batch_dialog.py`, `settings_dialog.py`, `help_dialog.py` |
+| `gui/` | `main_window.py` (MainWindow, AnalysisWorker), `workers.py` (Detection/Tracking QThreads), `image_viewer.py`, `results_viewer.py` (+ `results_export.py`: CSV/PNG export), `analysis_dashboard.py`, `units_widget.py` (`UnitsWidget`: explicit pixel size / frame interval, no defaults; used by the dashboard and results viewer), `batch_dialog.py`, `settings_dialog.py`, `help_dialog.py` |
 | `simulation.py` | `SimulationParams`, `simulate_recording`: simulated recordings with ground truth (diffusive/confined/directed/immobile, blinking, Poisson + read noise); the web demo |
 | `web/` | web interface (below) |
 
