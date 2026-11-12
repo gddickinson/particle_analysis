@@ -1,9 +1,11 @@
 # tests/test_visualization.py
-"""Offscreen smoke tests of the Qt viewers in visualization/viewers.py (TrackViewer, FeatureViewer).
+"""Smoke tests of the viewers: Qt TrackViewer/FeatureViewer (visualization/viewers.py, offscreen) and the matplotlib
+TrackVisualizer (visualization/plot_utils.py).
 
-The previous version of this file was a truncated paste (a SyntaxError on line 3) that tested a TrackVisualizer class
-the package does not have and needed pytest-qt. These tests use a plain offscreen QApplication instead and are skipped
-when PyQt6/pyqtgraph are not installed.
+The previous version of this file was a truncated paste (a SyntaxError on line 3; its fixtures and imports were lost)
+whose Qt tests needed pytest-qt and called widget attributes the viewers do not have. These tests use a plain offscreen
+QApplication and are skipped when PyQt6/pyqtgraph are not installed; the TrackVisualizer error-handling test is the
+original one, restored.
 """
 import os
 
@@ -53,3 +55,18 @@ def test_feature_viewer_lists_numeric_features(qapp, sample_tracks):
     names = [viewer.feature_combo.itemText(i) for i in range(viewer.feature_combo.count())]
     assert "diffusion_coefficient" in names and "msd_values" not in names
     assert "Mean:" in viewer.stats_label.text()
+
+
+def test_visualization_error_handling(sample_tracks, tmp_path):
+    """Test error handling in visualization (restored from the original file)"""
+    import matplotlib
+    matplotlib.use("Agg")
+    from particle_analysis.visualization.plot_utils import TrackVisualizer
+    visualizer = TrackVisualizer()
+
+    # Test with empty track list
+    assert visualizer.plot_tracks([]) is not None
+    # Test with invalid feature names
+    assert visualizer.plot_tracks(sample_tracks, color_by='invalid_feature') is not None
+    # Test movie creation with invalid path
+    assert not visualizer.create_track_movie(sample_tracks, str(tmp_path / "missing" / "movie.mp4"))

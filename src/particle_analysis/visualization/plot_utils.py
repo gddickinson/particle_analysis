@@ -74,15 +74,15 @@ class TrackVisualizer:
             
         # Create color mapping
         if color_by == 'track_id':
-            colors = plt.cm.get_cmap(self.colormap)(
+            colors = plt.colormaps[self.colormap](
                 np.linspace(0, 1, len(tracks))
             )
         elif features is not None and hasattr(features[0], color_by):
             values = [getattr(f, color_by) for f in features]
             norm = plt.Normalize(min(values), max(values))
-            colors = plt.cm.get_cmap(self.colormap)(norm(values))
+            colors = plt.colormaps[self.colormap](norm(values))
         else:
-            colors = [plt.cm.get_cmap(self.colormap)(0.5)] * len(tracks)
+            colors = [plt.colormaps[self.colormap](0.5)] * len(tracks)
             
         # Plot each track
         for track, color in zip(tracks, colors):
@@ -101,9 +101,10 @@ class TrackVisualizer:
             
             # Plot points if requested
             if show_points:
+                # track colour, fading in over time (alpha from min_alpha to 1)
+                rgb = mcolors.to_rgb(color)
                 scatter = ax.scatter(positions[:, 0], positions[:, 1],
-                                   c=alphas, cmap='Greys',
-                                   s=20, color=color)
+                                   color=[(*rgb, a) for a in alphas], s=20)
                 
         ax.set_aspect('equal')
         if title:
@@ -191,7 +192,7 @@ class TrackVisualizer:
         # Create color mapping
         values = [getattr(f, color_by) for f in features]
         norm = plt.Normalize(min(values), max(values))
-        cmap = plt.cm.get_cmap(self.colormap)
+        cmap = plt.colormaps[self.colormap]
         
         # Plot each MSD curve
         for feature, value in zip(features, values):
@@ -257,7 +258,7 @@ class TrackVisualizer:
             frames = []
             
             # Create color mapping
-            colors = plt.cm.get_cmap(self.colormap)(
+            colors = plt.colormaps[self.colormap](
                 np.linspace(0, 1, len(tracks))
             )
             
