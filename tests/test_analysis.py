@@ -272,3 +272,13 @@ def test_analysis_consistency(analyzer, sample_features):
 
     for feature in comparison1:
         assert comparison1[feature]['t_pvalue'] == comparison2[feature]['t_pvalue']
+
+
+def test_spatial_statistics_empty_bins_are_zero(analyzer, sample_tracks):
+    """Regression: np.divide(..., where=...) without out= left empty bins as uninitialised memory."""
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # numpy warns "'where' used without 'out'"
+        res = analyzer.calculate_spatial_statistics(sample_tracks, frame_size=(100, 100), bin_size=10)
+    empty = res['density_map'] == 0
+    assert empty.any() and np.all(res['velocity_map'][empty] == 0)

@@ -233,6 +233,7 @@ class TrackAnalyzer:
             # Normalize velocity map by density
             with np.errstate(divide='ignore', invalid='ignore'):
                 velocity_map = np.divide(velocity_map, density_map,
+                                      out=np.zeros_like(velocity_map),
                                       where=density_map!=0)
                 
             return {
