@@ -87,7 +87,7 @@ def test_demo_motion_reports_units():
     m = client.get("/api/demo/motion/0.2").json()
     assert m["pixel_size_um"] == 0.108 and m["units_source"] == "simulation parameters"
     assert len(m["motion"]) == len(m["tracks"]) > 0
-    assert {r["motion_type"] for r in m["motion"]} <= {"confined", "normal_diffusion", "directed", "anomalous", None}
+    assert {r["motion_type"] for r in m["motion"]} <= {"confined", "normal_diffusion", "directed", "anomalous", "unclassified"}
 
 
 def _tiff_bytes(movie, pixel_um=None):

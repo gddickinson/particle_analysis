@@ -72,7 +72,10 @@ def confined_motion_track():
     """Create track with confined motion"""
     np.random.seed(42)
     n_steps = 100
-    confinement_size = 2.0
+    # radius 0.6 with 0.2 steps: the walk reaches the boundary within ~5 steps, well inside the MSD lags
+    # analysed (up to 25). With the former radius 2.0 it explored only ~1.4 (RMS) in 25 steps, so its MSD
+    # was indistinguishable from free diffusion.
+    confinement_size = 0.6
 
     # Generate confined random walk
     positions = np.zeros((n_steps, 2))
@@ -143,17 +146,12 @@ def test_motion_classification(analyzer,
                              normal_diffusion_track,
                              directed_motion_track,
                              confined_motion_track):
-    """Test motion type classification (directed motion; see the xfail test below for the others)"""
+    """Test motion type classification (directed motion; normal and confined below)"""
     motion_type = analyzer.classify_motion(directed_motion_track)
     assert isinstance(motion_type, MotionType)
     assert motion_type == MotionType.DIRECTED
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "classify_motion picks the model with the highest raw R^2; the 2-parameter confined and anomalous "
-    "models contain normal diffusion, so they fit a single 100-step track at least as well. These two "
-    "realisations come out swapped. A different selection rule (e.g. AIC/BIC, ROADMAP) is a method "
-    "decision for George (see SESSION_LOG.md)."))
 def test_motion_classification_normal_and_confined(analyzer, normal_diffusion_track, confined_motion_track):
     assert analyzer.classify_motion(normal_diffusion_track) == MotionType.NORMAL_DIFFUSION
     assert analyzer.classify_motion(confined_motion_track) == MotionType.CONFINED
@@ -195,7 +193,7 @@ def test_error_handling(analyzer):
 
     # Motion classification should handle errors
     motion_type = analyzer.classify_motion(empty_track)
-    assert motion_type == MotionType.NORMAL_DIFFUSION  # Default fallback
+    assert motion_type == MotionType.UNCLASSIFIED  # no MSD to fit: not a normal-diffusion result
 
     # Track analysis should handle errors
     results = analyzer.analyze_track(empty_track)
@@ -250,3 +248,38 @@ def test_analysis_consistency(analyzer, normal_diffusion_track):
             results1['fit_results'][model]['fit_values'],
             results2['fit_results'][model]['fit_values']
         )
+
+
+def _sim_track(kind, n_frames, rng, tid=0):
+    from particle_analysis.simulation import SimulationParams, _trajectory
+    p = SimulationParams(n_frames=n_frames, shape=(400, 400))
+    xy = _trajectory(kind, np.array([200.0, 200.0]), p, rng) + rng.normal(0, 0.1, (n_frames, 2))  # 0.1 px loc. error
+    parts = [Particle(frame=i, x=float(x), y=float(y), intensity=100.0, sigma=1.5, snr=10.0, frame_size=(400, 400))
+             for i, (x, y) in enumerate(xy)]
+    return Track(id=tid, particles=parts, start_frame=0, end_frame=n_frames - 1)
+
+
+@pytest.mark.parametrize("kind,expected", [("diffusive", MotionType.NORMAL_DIFFUSION),
+                                           ("confined", MotionType.CONFINED),
+                                           ("directed", MotionType.DIRECTED)])
+def test_classification_of_simulated_tracks(kind, expected):
+    """Most simulated 100-frame tracks (particle_analysis.simulation, demo settings) are classified as simulated.
+    Regression: with the highest raw R^2 most diffusive tracks were called confined or directed."""
+    an = DiffusionAnalyzer(pixel_size=0.108, frame_interval=0.1)
+    rng = np.random.default_rng(11)
+    calls = [an.classify_motion(_sim_track(kind, 100, rng, k)) for k in range(60)]
+    assert sum(c == expected for c in calls) / len(calls) >= 0.7
+
+
+def test_short_track_is_unclassified(analyzer):
+    """Regression: tracks too short for the fits were reported as normal diffusion."""
+    track = _sim_track("diffusive", 10, np.random.default_rng(0))
+    assert analyzer.classify_motion(track) == MotionType.UNCLASSIFIED
+    assert analyzer.analyze_track(track)['motion_type'] == MotionType.UNCLASSIFIED
+
+
+def test_fits_report_bic_and_whiten_with_track_length(analyzer, normal_diffusion_track):
+    t, msd = analyzer.calculate_msd(normal_diffusion_track)
+    fits = analyzer.fit_diffusion_models(t, msd, len(normal_diffusion_track.particles))
+    assert set(fits) == {'normal', 'anomalous', 'confined', 'directed'}
+    assert all(np.isfinite(f['bic']) and f['n_params'] in (1, 2) for f in fits.values())

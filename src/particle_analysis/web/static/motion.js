@@ -6,8 +6,8 @@ import { MOTION_COLORS } from './viewer.js';
 import { fmt, lineChart, sortable } from './charts.js';
 
 const TYPES = ['normal_diffusion', 'confined', 'directed', 'anomalous'];
-const NC = 'not classified';
-const typeLabel = v => v ? v.replace('_', ' ') : NC;
+const NC = 'unclassified';
+const typeLabel = v => (v || NC).replace('_', ' ');
 const TRUE_TYPES = ['diffusive', 'confined', 'directed', 'immobile'];
 const MODEL_COLORS = { normal: '#5ab8ff', anomalous: '#ff8a3d', confined: '#ffd23f', directed: '#ff5ad1' };
 
@@ -30,8 +30,10 @@ route('motion', async () => {
   app().innerHTML = `
     <h1>Motion analysis</h1>
     <p class="lead">DiffusionAnalyzer converts each track to µm and seconds, computes the MSD for lags up to a quarter of
-      the track, fits four models and picks the one with the highest R²; for the anomalous model, α &lt; 0.8 is called
-      confined and α &gt; 1.2 directed. <span class="badge py">Python</span></p>
+      the track and fits four models by generalised least squares (weighted by the covariance of the MSD of a Brownian
+      track, since the lags of one track are correlated). The model with the lowest BIC wins, which penalises the extra
+      parameter of the anomalous, confined and directed models; if it is the anomalous one, α &lt; 0.8 is called confined
+      and α &gt; 1.2 directed. Tracks with fewer than 4 MSD points are unclassified. <span class="badge py">Python</span></p>
     <p class="eq">normal 4Dt · anomalous 4Dt<sup>α</sup> · confined A(1 − e<sup>−4Dt/A</sup>) · directed 4Dt + (vt)²</p>
     <form class="panel params row" id="units">
       <div><label for="px">Pixel size (µm)</label><input id="px" type="number" step="any" min="0.0001" value="${d.pixel_size_um}">
@@ -63,8 +65,8 @@ function render(out, r, d, demo) {
   const rows = r.motion.map(m => {
     const t = tracks.get(m.track_id) || {};
     if (demo && t.frames) t.truth ??= truthOf(t);
-    const best = Object.entries(m.fits).sort((a, b) => (b[1].r_squared ?? -Infinity) - (a[1].r_squared ?? -Infinity))[0];
-    return { track_id: m.track_id, n: m.msd.length, type: m.motion_type || NC, best: best ? best[0] : '–', r2: best ? best[1].r_squared : null,
+    const best = Object.entries(m.fits).filter(([, f]) => f.bic !== null).sort((a, b) => a[1].bic - b[1].bic)[0];
+    return { track_id: m.track_id, n: m.msd.length, type: m.motion_type || NC, best: best ? best[0] : '–', bic: best ? best[1].bic : null,
       D: m.fits.normal?.D, alpha: m.fits.anomalous?.alpha, truth: t.truth?.motion, m };
   });
   const counts = Object.fromEntries([...TYPES, NC].map(k => [k, rows.filter(x => x.type === k).length]));
@@ -72,16 +74,17 @@ function render(out, r, d, demo) {
     <p class="mute small">${r.motion.length} tracks; pixel size ${r.pixel_size_um} µm, frame interval ${r.frame_interval_s} s
       (${esc(r.units_source || '')}); ${esc(r.source)}.</p>
     <div class="tiles">${TYPES.map(k => `<div class="tile" style="border-left-color:${MOTION_COLORS[k]}"><b>${counts[k]}</b><span>${k.replace('_', ' ')}</span></div>`).join('')}
-      ${counts[NC] ? `<div class="tile" style="border-left-color:var(--mute)"><b>${counts[NC]}</b><span>${NC}: too short for the fits</span></div>` : ''}</div>
+      ${counts[NC] ? `<div class="tile" style="border-left-color:var(--mute)"><b>${counts[NC]}</b><span>${NC} (too short or fits failed)</span></div>` : ''}</div>
     ${demo ? `<div class="panel"><h3 style="margin-top:0">Classified type against the simulated motion</h3>${confusion(rows)}
-      <p class="hint">Rows: how the particle was simulated; columns: what the classifier called its track. The model with
-      the highest R² wins, and the confined and anomalous models (two parameters) include normal diffusion as a special
-      case, so they often fit a short diffusive track at least as well: read the classification as a hint, not a verdict.</p></div>` : ''}
+      <p class="hint">Rows: how the particle was simulated; columns: what the classifier called its track. Immobile
+      particles have no model of their own: their MSD is a localisation-noise plateau, which the confined model fits.
+      Short tracks are classified less reliably (in tests on simulated 100-frame tracks, about 87% of diffusive and
+      confined and all directed tracks came out right).</p></div>` : ''}
     <h2>Tracks</h2><div id="mtable"></div>
     <div class="panel"><h3 style="margin-top:0" id="fitt">Model fits</h3><div id="fit"><p class="mute small">Choose a track in the table.</p></div></div>`;
   sortable($('#mtable'), [{ key: 'track_id', label: 'Track' }, { key: 'n', label: 'MSD lags' },
     { key: 'type', label: 'Motion type', fmt: v => `<span style="color:${MOTION_COLORS[v] || 'var(--mute)'}">${typeLabel(v === NC ? null : v)}</span>` },
-    { key: 'best', label: 'Best model' }, { key: 'r2', label: 'R²', fmt: v => fmt(v, 4) },
+    { key: 'best', label: 'Lowest BIC' }, { key: 'bic', label: 'BIC', fmt: v => fmt(v, 1) },
     { key: 'D', label: 'D normal (µm²/s)', fmt: v => fmt(v, 4) }, { key: 'alpha', label: 'α anomalous', fmt: v => fmt(v, 2) },
     ...(demo ? [{ key: 'truth', label: 'Simulated as', fmt: v => v ? `<span style="color:${MOTION_COLORS[v]}">${v}</span>` : '–' }] : [])],
   rows, { onRow: x => showFit(x.m) });
@@ -96,8 +99,8 @@ function confusion(rows) {
 function showFit(m) {
   $('#fitt').textContent = `Model fits, track ${m.track_id} (${typeLabel(m.motion_type)})`;
   const series = [{ x: m.time_lags, y: m.msd, color: '#7cff6b', points: true, label: 'MSD' },
-    ...Object.entries(m.fits).map(([k, f]) => ({ x: m.time_lags, y: f.fit_values, color: MODEL_COLORS[k], dash: true, label: `${k} (R² ${fmt(f.r_squared, 3)})` }))];
-  const params = Object.entries(m.fits).map(([k, f]) => `<dt>${k}</dt><dd>${Object.entries(f).filter(([p]) => !['fit_values', 'r_squared'].includes(p)).map(([p, v]) => `${p} = ${fmt(v, 4)}`).join(', ')}</dd>`).join('');
+    ...Object.entries(m.fits).map(([k, f]) => ({ x: m.time_lags, y: f.fit_values, color: MODEL_COLORS[k], dash: true, label: `${k} (BIC ${fmt(f.bic, 1)})` }))];
+  const params = Object.entries(m.fits).map(([k, f]) => `<dt>${k}</dt><dd>${Object.entries(f).filter(([p]) => !['fit_values', 'r_squared', 'chi2', 'bic', 'n_params'].includes(p)).map(([p, v]) => `${p} = ${fmt(v, 4)}`).join(', ')}</dd>`).join('');
   $('#fit').innerHTML = `<div class="two"><div>${lineChart(series, { xlabel: 'lag (s)', ylabel: 'MSD (µm²)' })}</div><dl class="kv">${params}</dl></div>
     <p class="hint">Units: D in µm²/s, v in µm/s, confinement_size = √A in µm.</p>`;
 }

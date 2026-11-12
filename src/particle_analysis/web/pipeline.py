@@ -130,12 +130,13 @@ def features(tracks: List[Track]) -> List[Dict]:
 
 
 def motion(tracks: List[Track], pixel_size: float, frame_interval: float) -> List[Dict]:
-    """DiffusionAnalyzer.analyze_track per track: MSD (um^2 vs s), the four model fits and the motion type."""
+    """DiffusionAnalyzer.analyze_track per track: MSD (um^2 vs s), the four model fits (with BIC) and the motion
+    type ("unclassified" when the MSD is too short or the fits fail)."""
     an = DiffusionAnalyzer(pixel_size=pixel_size, frame_interval=frame_interval)
     out = []
     log = logging.getLogger("particle_analysis.analysis.diffusion")
     level = log.level
-    log.setLevel(logging.CRITICAL)  # short tracks make the fits fail; reported per track below instead
+    log.setLevel(logging.CRITICAL)  # short tracks make the fits fail; they come back as "unclassified"
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -145,11 +146,9 @@ def motion(tracks: List[Track], pixel_size: float, frame_interval: float) -> Lis
                     continue
                 fits = {}
                 for model, fr in r["fit_results"].items():
-                    fits[model] = {k: ([_num(x) for x in v] if k == "fit_values" else _num(v)) for k, v in fr.items()}
-                # classify_motion falls back to normal diffusion when the fits fail; do not report that as a result
-                ok = len(fits) == 4
-                out.append({"track_id": int(t.id), "motion_type": r["motion_type"].value if ok else None,
-                            "note": None if ok else "not classified: the model fits failed (too few MSD points)",
+                    fits[model] = {k: ([_num(x) for x in v] if k == "fit_values" else
+                                   int(v) if k == "n_params" else _num(v)) for k, v in fr.items()}
+                out.append({"track_id": int(t.id), "motion_type": r["motion_type"].value,
                             "time_lags": [_num(x) for x in r["msd_data"]["time_lags"]],
                             "msd": [_num(x) for x in r["msd_data"]["msd_values"]], "fits": fits})
     finally:
