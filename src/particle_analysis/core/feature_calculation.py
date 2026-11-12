@@ -81,6 +81,8 @@ class FeatureCalculator:
                 
             positions = track.positions
             times = track.frames
+            if not np.all(np.isfinite(positions)):
+                return None
             
             # Calculate basic features
             msd_values, time_lags = self.calculate_msd(positions, times)
@@ -140,9 +142,15 @@ class FeatureCalculator:
                      msd_values: np.ndarray,
                      time_lags: np.ndarray) -> Tuple[float, float]:
         """Fit MSD curve to extract diffusion coefficient and alpha"""
-        # Take log of both arrays
-        log_msd = np.log(msd_values)
-        log_time = np.log(time_lags)
+        # Fit only lags with a positive MSD and time lag (log(0) is -inf; a track that returns exactly
+        # to an earlier position has MSD 0 at that lag)
+        msd_values = np.asarray(msd_values, dtype=float)
+        time_lags = np.asarray(time_lags, dtype=float)
+        keep = (msd_values > 0) & (time_lags > 0) & np.isfinite(msd_values) & np.isfinite(time_lags)
+        if np.count_nonzero(keep) < 2:
+            return np.nan, np.nan
+        log_msd = np.log(msd_values[keep])
+        log_time = np.log(time_lags[keep])
         
         # Perform linear fit
         slope, intercept, _, _, _ = stats.linregress(log_time, log_msd)
@@ -164,9 +172,8 @@ class FeatureCalculator:
         # Calculate covariance matrix
         cov_matrix = np.cov(positions.T)
         
-        # Get eigenvalues
-        eigenvals = np.linalg.eigvals(cov_matrix)
-        eigenvals.sort()
+        # Eigenvalues of the symmetric covariance matrix (eigvalsh: real, ascending)
+        eigenvals = np.linalg.eigvalsh(cov_matrix)
         
         # Calculate asymmetry
         if len(eigenvals) > 1 and np.sum(eigenvals) > 0:
@@ -174,13 +181,15 @@ class FeatureCalculator:
         else:
             asymmetry = 0
             
-        return asymmetry
+        return float(asymmetry)
     
     def calculate_fractal_dimension(self, positions: np.ndarray) -> float:
         """Calculate fractal dimension using box-counting method"""
         # Calculate pairwise distances
         distances = pdist(positions)
         
+        # Smallest non-zero distance sets the finest scale (repeated positions give distance 0)
+        distances = distances[distances > 0]
         if len(distances) == 0:
             return 0
             

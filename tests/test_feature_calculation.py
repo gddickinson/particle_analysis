@@ -210,3 +210,22 @@ def test_confinement_ratio(calculator):
     assert features is not None
     # Confinement ratio should be low for confined motion
     assert features.confinement_ratio < 0.3
+
+def _track(xy, tid=9):
+    particles = [Particle(frame=i, x=float(x), y=float(y), intensity=100.0, sigma=1.5, snr=10.0,
+                          frame_size=(100, 100)) for i, (x, y) in enumerate(xy)]
+    return Track(id=tid, particles=particles, start_frame=0, end_frame=len(xy) - 1)
+
+
+def test_asymmetry_is_a_real_number(calculator, linear_track):
+    """Regression: np.linalg.eigvals returned complex128 (written to CSV as '(1+0j)', dropped by the viewers)."""
+    a = calculator.calculate_asymmetry(linear_track.positions)
+    assert isinstance(a, float) and not isinstance(a, complex)
+
+
+def test_features_when_a_lag_has_zero_msd(calculator):
+    """Regression: a track that returns exactly to earlier positions has MSD 0 at some lag; log(0) made the
+    whole feature calculation fail (None) instead of fitting the positive MSD points."""
+    xy = [(0, 0), (1, 0), (0, 0), (1, 0), (0, 0), (1, 0), (0, 0)]
+    f = calculator.calculate_track_features(_track(xy))
+    assert f is not None and np.isfinite(f.alpha) and np.isfinite(f.fractal_dimension)
