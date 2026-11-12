@@ -1,3 +1,6 @@
 examples/GB_168_2022_03_14_HTEndothelial_BAPTA_plate1_8_bin5.tif
 examples/GB_168_2022_03_14_HTEndothelial_BAPTA_plate1_8_bin5_features.csv
 examples/GB_168_2022_03_14_HTEndothelial_BAPTA_plate1_8_bin5_tracks.csv
+__pycache__/
+*.pyc
+site/

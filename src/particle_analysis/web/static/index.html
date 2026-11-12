@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ParticleAnalysis</title>
+<meta name="description" content="Detect, track and analyse fluorescent particles in microscope recordings: Gaussian-fit detection, nearest-neighbour linking with gap closing, MSD and track-shape features, motion classification.">
+<link rel="icon" href="static/icon.svg">
+<link rel="stylesheet" href="static/style.css">
+<link rel="stylesheet" href="static/style_app.css">
+</head>
+<body>
+<canvas id="bg" aria-hidden="true"></canvas>
+<header class="top">
+  <a class="brand" href="#/"><span class="mark"></span>ParticleAnalysis</a>
+  <nav class="groups">
+    <a href="#/recording" data-nav="recording">Detect</a>
+    <a href="#/tracks" data-nav="tracks">Track</a>
+    <a href="#/features" data-nav="features">Features</a>
+    <a href="#/motion" data-nav="motion">Motion</a>
+    <a href="#/data" data-nav="data">Your data</a>
+    <a href="#/about" data-nav="about">About</a>
+  </nav>
+  <div class="right"><span id="dataset" class="small mute"></span><a class="small mute" href="https://github.com/gddickinson/particle_analysis" target="_blank" rel="noopener">GitHub</a></div>
+</header>
+<main id="app" tabindex="-1"></main>
+<footer class="foot">ParticleAnalysis · <a href="https://github.com/gddickinson/particle_analysis">source on GitHub</a> · <span id="mode"></span></footer>
+<script type="module" src="static/main.js"></script>
+</body>
+</html>

@@ -115,6 +115,39 @@ Track analysis includes:
 - Shape descriptors computation
 - Motion type classification
 
+## Web interface
+
+A browser interface to the same pipeline, plus a static showcase on GitHub Pages
+(https://gddickinson.github.io/particle_analysis/).
+
+| Detect | Track |
+|---|---|
+| ![Detect page](docs/img/recording.png) | ![Track page](docs/img/tracks.png) |
+| **Features** | **Motion** |
+| ![Features page](docs/img/features.png) | ![Motion page](docs/img/motion.png) |
+
+- **Detect**: the recording with ParticleDetector's detections, the threshold, per-frame counts and SNR/width histograms.
+- **Track**: ParticleTracker with live settings, tracks drawn over the recording, a track table and CSV export.
+- **Features**: FeatureCalculator (MSD fit, Rg, asymmetry, fractal dimension, straightness, ...) per track, CSV export.
+- **Motion**: DiffusionAnalyzer's four MSD models and motion type, in µm and seconds.
+- **Your data**: a TIFF stack (detected in Python by the local app; the pixel size is read from OME/ImageJ metadata
+  when present) or a detections CSV (frame, x, y) tracked in the browser.
+
+The demo recording is **simulated** by `particle_analysis/simulation.py` (14 particles: diffusive, confined, directed,
+immobile; Gaussian spots with Poisson and read noise and blinking), so every page can compare its results with the true
+particle paths. Detection and the motion analysis run in Python (precomputed for the demo on the static site); tracking
+and track features run in the browser as JS ports that reproduce the Python output (`node
+src/particle_analysis/web/static/engine.test.mjs`, fixture from `scripts/make_engine_fixture.py`).
+
+### Run the web app
+
+```bash
+pip install -r requirements-web.txt
+python run_web.py            # http://127.0.0.1:8129 (local only)
+python -m pytest -q tests    # includes tests/test_web.py
+python scripts/build_static.py --out site   # the static site, as published by .github/workflows/pages.yml
+```
+
 ## Data Format
 
 The application accepts:
