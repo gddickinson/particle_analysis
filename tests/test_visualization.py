@@ -13,13 +13,16 @@ import numpy as np
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-QtWidgets = pytest.importorskip("PyQt6.QtWidgets")
-pytest.importorskip("pyqtgraph")
+os.environ.setdefault("PYQTGRAPH_QT_LIB", "PyQt6")
+try:  # the Qt stack can be absent or broken (e.g. two Qt bindings loaded); skip rather than error
+    from PyQt6 import QtWidgets
+    from particle_analysis.visualization.viewers import FeatureViewer, TrackViewer
+except ImportError as e:
+    pytest.skip(f"PyQt6/pyqtgraph not importable: {e}", allow_module_level=True)
 
 from particle_analysis.core.feature_calculation import FeatureCalculator  # noqa: E402
 from particle_analysis.core.particle_detection import Particle  # noqa: E402
 from particle_analysis.core.particle_tracking import Track  # noqa: E402
-from particle_analysis.visualization.viewers import FeatureViewer, TrackViewer  # noqa: E402
 
 
 @pytest.fixture(scope="module")

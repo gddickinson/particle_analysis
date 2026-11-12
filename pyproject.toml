@@ -40,3 +40,8 @@ include = '\.pyi?$'
 [tool.isort]
 profile = "black"
 multi_line_output = 3
+
+[tool.pytest.ini_options]
+# pytest-qt (if installed) must load the same Qt binding as the app; with PySide6 also installed it would
+# otherwise load PySide6 first and PyQt6/pyqtgraph then fail to import (mixed Qt libraries).
+qt_api = "pyqt6"
