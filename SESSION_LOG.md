@@ -20,21 +20,22 @@
   (single-scale detection, relative threshold, linking rule, requirements path, contributing link).
 - Wrong test expectations fixed (asymmetry of a line, 3 clusters from 2 tracks, NaN == NaN).
 
-### Needs George's decision (kept as strict xfail tests where relevant)
-- `FeatureCalculator.fit_msd_curve`: D = exp(intercept) / (4 alpha). For MSD = 4 D t^alpha the usual estimate is
-  exp(intercept) / 4; dividing by alpha gives negative D for alpha < 0 (seen for immobile particles in the demo).
-  `plot_utils.plot_msd_curves` draws 4 D t^alpha, inconsistent with this D. Not changed.
-- `DiffusionAnalyzer.classify_motion` picks the highest raw R^2; the 2-parameter confined/anomalous models contain
-  normal diffusion, so diffusive tracks are often called confined (demo: 1 of 5 diffusive called normal). AIC/BIC
-  (ROADMAP) would change results. `test_motion_classification_normal_and_confined` is xfail.
-- `classify_motion` returns NORMAL_DIFFUSION when the fits fail (tracks < 8 points); the web shows "not classified"
-  instead, the GUI dashboard still counts them as normal diffusion.
-- Fractal dimension by box counting over few points gives ~0.5 for a random walk, not ~2 (xfail test).
-- `ParticleDetector`: `min_sigma` and `sigma_steps` are unused (detection is single-scale); fit sigma bounds 0.8-4 px
-  are fixed. README now says so.
-- `TrackAnalyzer.calculate_spatial_statistics` indexes the map as [x_bin, y_bin] with n_bins from frame_size[0]/[1];
-  for non-square frames given as (rows, cols) this mixes axes. Unused by the app; not changed.
-- Default `pixel_size=0.108 um`, `frame_interval=0.1 s` are used silently by the GUI dashboard's DiffusionAnalyzer().
+### Method fixes (2026-11-12, at George's request: "fix ... any other problems")
+- `fit_msd_curve`: D = exp(intercept)/4 for MSD = 4 D t^alpha (was /(4 alpha)); a negative slope is an invalid fit
+  (D, alpha NaN).
+- Fractal dimension: Katz's estimator (1 for a line, ~1.9 for 2D random walks, >2 confined) replaces box counting
+  (~0.5 for a random walk).
+- Motion classification: GLS fits weighted by the covariance of a Brownian track's MSD, model chosen by lowest BIC
+  (was raw R^2). Simulated 100-frame tracks: ~87% diffusive and confined, 100% directed classified as simulated
+  (OLS + AIC/BIC alone got diffusive only 25-43% right because the MSD lags are correlated).
+- `MotionType.UNCLASSIFIED` for < 4 MSD points or failed fits (were reported as normal diffusion).
+- `ParticleDetector`: min_sigma/max_sigma bound the fitted width; sigma_steps trial widths give the start value.
+- Both former strict xfails pass (the confined test fixture now reaches its boundary within the analysed lags).
+
+### Still open (not changed)
+- `TrackAnalyzer.calculate_spatial_statistics` may mix axes for non-square frames (unused by the app).
+- The GUI dashboard uses DiffusionAnalyzer's default pixel size / frame interval (0.108 um, 0.1 s) silently.
+- `gui/main_window.py` (930 lines) and `gui/results_viewer.py` (508) exceed the 500-line budget.
 
 ### Web interface
 - `src/particle_analysis/web/` (FastAPI, port 8129) + static site (GitHub Pages workflow). Pages: home, Detect,

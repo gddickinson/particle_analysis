@@ -8,10 +8,10 @@ Particle detection, tracking and diffusion analysis for fluorescence microscopy 
 | Path | Contents |
 |---|---|
 | `__main__.py` | `python -m particle_analysis`: logging, QApplication, `gui.main_window.MainWindow` |
-| `core/particle_detection.py` | `Particle` (dataclass), `ParticleDetector` (median-filter background, `peak_local_max`, 2D Gaussian fit per peak; `detect_frame`, `detect_movie`) |
+| `core/particle_detection.py` | `Particle` (dataclass), `ParticleDetector` (median-filter background, `peak_local_max`, 2D Gaussian fit per peak with sigma in [min_sigma, max_sigma]; `detect_frame`, `detect_movie`) |
 | `core/particle_tracking.py` | `Track` (dataclass: positions, frames, intensities), `ParticleTracker` (`track_particles`: closest-pair-first linking within `max_distance`, gaps up to `max_gap` filled by interpolation, `min_track_length`) |
-| `core/feature_calculation.py` | `TrackFeatures`, `FeatureCalculator` (MSD, log-log fit D/alpha, Rg, asymmetry, fractal dimension, straightness, velocity/acceleration, confinement ratio; pixels and frames) |
-| `analysis/diffusion.py` | `MotionType`, `DiffusionAnalyzer(pixel_size, frame_interval)`: MSD in um^2/s, normal/anomalous/confined/directed fits, `classify_motion`, `analyze_track` |
+| `core/feature_calculation.py` | `TrackFeatures`, `FeatureCalculator` (MSD, log-log fit of 4 D t^alpha, Rg, asymmetry, Katz fractal dimension, straightness, velocity/acceleration, confinement ratio; pixels and frames) |
+| `analysis/diffusion.py` | `MotionType` (incl. UNCLASSIFIED), `msd_covariance` (Brownian MSD covariance), `DiffusionAnalyzer(pixel_size, frame_interval)`: MSD in um^2/s, normal/anomalous/confined/directed GLS fits with BIC, `select_model`, `classify_motion`, `analyze_track` |
 | `analysis/statistics.py` | `TrackAnalyzer`: KMeans classification of features, condition comparison, mobility, spatial maps, Excel report |
 | `io/readers.py` | `DataReader`: `read_movie` (TIFF via skimage), particles/tracks/features CSV |
 | `io/writers.py` | `DataWriter`: particles/tracks/features CSV, analysis summary, batch results |
