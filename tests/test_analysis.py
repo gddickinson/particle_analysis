@@ -277,3 +277,19 @@ def test_spatial_statistics_empty_bins_are_zero(analyzer, sample_tracks):
         res = analyzer.calculate_spatial_statistics(sample_tracks, frame_size=(100, 100), bin_size=10)
     empty = res['density_map'] == 0
     assert empty.any() and np.all(res['velocity_map'][empty] == 0)
+
+
+def test_spatial_statistics_non_square_frame(analyzer):
+    """Regression: on a 64 x 128 frame (height x width, as Particle.frame_size / numpy shape) the x bins were
+    counted from the height, so every particle right of x = 64 landed in the last x bin."""
+    def track(tid, x, y):
+        ps = [Particle(frame=i, x=x + 0.5 * i, y=y, intensity=1.0, sigma=1.5, snr=5.0, frame_size=(64, 128))
+              for i in range(4)]
+        return Track(id=tid, particles=ps, start_frame=0, end_frame=3)
+    res = analyzer.calculate_spatial_statistics([track(0, 100.0, 5.0), track(1, 20.0, 50.0)],
+                                                frame_size=(64, 128), bin_size=10)
+    d, v = res['density_map'], res['velocity_map']
+    assert d.shape == (12, 6)  # [x bin, y bin]: 128 // 10 by 64 // 10
+    assert d[10, 0] == 4 and d[2, 5] == 4 and d.sum() == 8
+    # mean step speed in the bin (0.5 px per frame), not diluted by the track's last point
+    assert v[10, 0] == pytest.approx(0.5) and v[2, 5] == pytest.approx(0.5)

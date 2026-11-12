@@ -197,21 +197,25 @@ class TrackAnalyzer:
         tracks : List[Track]
             List of tracks to analyze
         frame_size : Tuple[int, int]
-            Size of imaging frame
+            Size of imaging frame as (height, width) in pixels, i.e. the numpy shape of a frame, as stored in
+            Particle.frame_size
         bin_size : int
-            Size of spatial bins
+            Size of spatial bins (pixels)
             
         Returns
         -------
         Dict[str, np.ndarray]
-            Dictionary of spatial statistics
+            'density_map' (points per bin) and 'velocity_map' (mean step length per frame of the steps starting
+            in the bin), both indexed [x bin, y bin] with shape (width // bin_size, height // bin_size);
+            positions beyond the last full bin are counted in it
         """
         try:
-            # Create spatial grid
-            n_bins_x = frame_size[0] // bin_size
-            n_bins_y = frame_size[1] // bin_size
+            # Create spatial grid: x runs along the width (frame_size[1]), y along the height (frame_size[0])
+            n_bins_x = frame_size[1] // bin_size
+            n_bins_y = frame_size[0] // bin_size
             density_map = np.zeros((n_bins_x, n_bins_y))
             velocity_map = np.zeros((n_bins_x, n_bins_y))
+            step_counts = np.zeros((n_bins_x, n_bins_y))
             
             for track in tracks:
                 positions = track.positions
@@ -224,17 +228,18 @@ class TrackAnalyzer:
                 for x, y in zip(bin_x, bin_y):
                     density_map[int(x), int(y)] += 1
                     
-                # Calculate velocities
+                # Calculate velocities (each step is counted in the bin it starts from)
                 if len(positions) > 1:
                     velocities = np.sqrt(np.sum(np.diff(positions, axis=0)**2, axis=1))
                     for i, (x, y) in enumerate(zip(bin_x[:-1], bin_y[:-1])):
                         velocity_map[int(x), int(y)] += velocities[i]
+                        step_counts[int(x), int(y)] += 1
                         
-            # Normalize velocity map by density
+            # Mean step length per bin (divided by the number of steps, not of points)
             with np.errstate(divide='ignore', invalid='ignore'):
-                velocity_map = np.divide(velocity_map, density_map,
+                velocity_map = np.divide(velocity_map, step_counts,
                                       out=np.zeros_like(velocity_map),
-                                      where=density_map!=0)
+                                      where=step_counts!=0)
                 
             return {
                 'density_map': density_map,
