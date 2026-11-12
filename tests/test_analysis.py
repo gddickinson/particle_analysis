@@ -229,26 +229,20 @@ def test_feature_matrix_creation(analyzer, sample_features):
     assert not np.any(np.isnan(matrix))  # No NaN values
     assert not np.any(np.isinf(matrix))  # No infinite values
 
-def test_analysis_parameters(analyzer, sample_features):
+def test_analysis_parameters(analyzer, sample_tracks, condition_features):
     """Test analysis with different parameters"""
-    # Test classification with different number of classes
-    labels_2 = analyzer.classify_tracks(sample_features, n_classes=2)
-    labels_3 = analyzer.classify_tracks(sample_features, n_classes=3)
+    # Classification with different numbers of classes (needs at least as many tracks as classes;
+    # the old test asked for 3 clusters from 2 tracks)
+    features = condition_features[0] + condition_features[1]
+    labels_2 = analyzer.classify_tracks(features, n_classes=2)
+    labels_3 = analyzer.classify_tracks(features, n_classes=3)
 
     assert len(np.unique(labels_2)) == 2
     assert len(np.unique(labels_3)) == 3
 
-    # Test mobility analysis with different time windows
-    results_5 = analyzer.analyze_mobility(
-        [sample_features[0]],
-        sample_features,
-        time_window=5
-    )
-    results_10 = analyzer.analyze_mobility(
-        [sample_features[0]],
-        sample_features,
-        time_window=10
-    )
+    # Mobility analysis with different time windows (takes tracks, not features)
+    results_5 = analyzer.analyze_mobility(sample_tracks, features, time_window=5)
+    results_10 = analyzer.analyze_mobility(sample_tracks, features, time_window=10)
 
     assert len(results_5['confinement_ratios']) > len(results_10['confinement_ratios'])
 
@@ -270,8 +264,9 @@ def test_analysis_consistency(analyzer, sample_features):
         sample_features[1:]
     )
 
+    # one track per condition gives NaN p-values; NaN must compare equal to itself here
     for feature in comparison1:
-        assert comparison1[feature]['t_pvalue'] == comparison2[feature]['t_pvalue']
+        np.testing.assert_equal(comparison1[feature]['t_pvalue'], comparison2[feature]['t_pvalue'])
 
 
 def test_spatial_statistics_empty_bins_are_zero(analyzer, sample_tracks):

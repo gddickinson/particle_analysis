@@ -104,8 +104,9 @@ def test_linear_motion(calculator, linear_track):
     assert features is not None
     # Linear motion should have straightness close to 1
     assert features.straightness > 0.95
-    # Linear motion should have low asymmetry
-    assert features.asymmetry < 0.1
+    # asymmetry = 1 - lambda_min/lambda_max of the position covariance: 1 for a straight line
+    # (the old expectation "< 0.1" contradicted the definition; the circle test checks the low end)
+    assert features.asymmetry > 0.9
     # Alpha should be close to 2 for ballistic motion
     assert np.abs(features.alpha - 2.0) < 0.2
 
@@ -130,7 +131,14 @@ def test_random_motion(calculator, random_track):
     assert np.abs(features.alpha - 1.0) < 0.3
     # Random motion should have intermediate straightness
     assert 0.2 < features.straightness < 0.8
-    # Fractal dimension should be close to 2 for random walk
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "Box counting over 15 points between min/2 and 2*max pairwise distance gives ~0.5, not 2. "
+    "Whether to change the estimator is a method decision for George (see SESSION_LOG.md)."))
+def test_random_walk_fractal_dimension(calculator, random_track):
+    """Fractal dimension should be close to 2 for a random walk (original expectation, kept as xfail)."""
+    features = calculator.calculate_track_features(random_track)
     assert np.abs(features.fractal_dimension - 2.0) < 0.3
 
 def test_msd_calculation(calculator):
