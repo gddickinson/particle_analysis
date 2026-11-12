@@ -30,13 +30,15 @@ export function msd(pos, times, maxPoints) {
   return { values, lags };
 }
 
-// log-log fit of MSD = 4 D t^alpha over the lags with positive MSD; D = exp(intercept) / (4 alpha) as in the Python
+// log-log fit of MSD = 4 D t^alpha over the lags with positive MSD: alpha the slope, D = exp(intercept) / 4.
+// Invalid (NaN, NaN) with fewer than two usable lags or a negative slope, as in the Python.
 export function fitMsd(values, lags) {
   const x = [], y = [];
   values.forEach((v, i) => { if (v > 0 && lags[i] > 0 && isFinite(v) && isFinite(lags[i])) { x.push(Math.log(lags[i])); y.push(Math.log(v)); } });
   if (x.length < 2) return { D: NaN, alpha: NaN };
   const { slope, intercept } = ols(x, y);
-  return { D: Math.exp(intercept) / (4 * (slope !== 0 ? slope : 1)), alpha: slope };
+  if (!isFinite(slope) || slope < 0) return { D: NaN, alpha: NaN };
+  return { D: Math.exp(intercept) / 4, alpha: slope };
 }
 
 export function radiusGyration(pos) {
@@ -55,23 +57,16 @@ export function asymmetry(pos) {
   return a + c > 0 ? 1 - lo / hi : 0;
 }
 
-// numpy.logspace(log10(lo), log10(hi), num)
-function logspace(a, b, num) {
-  const step = (b - a) / (num - 1);
-  return Array.from({ length: num }, (_, i) => 10 ** (i === num - 1 ? b : i * step + a));
-}
-
+// Katz's fractal dimension: log(n) / (log(n) + log(d / L)); n steps, L path length, d largest distance from the
+// first point. NaN when undefined (fewer than 2 steps, no movement, or d at most one mean step).
 export function fractalDimension(pos) {
-  const d = [];
-  for (let i = 0; i < pos.length; i++) for (let j = i + 1; j < pos.length; j++) {
-    const dx = pos[i][0] - pos[j][0], dy = pos[i][1] - pos[j][1];
-    const v = Math.sqrt(dx * dx + dy * dy);
-    if (v > 0) d.push(v);
-  }
-  if (!d.length) return 0;
-  const scales = logspace(Math.log10(Math.min(...d) / 2), Math.log10(Math.max(...d) * 2), 20);
-  const counts = scales.map(s => new Set(pos.map(p => Math.floor(p[0] / s) + ',' + Math.floor(p[1] / s))).size);
-  return -ols(scales.map(Math.log), counts.map(Math.log)).slope;
+  const n = pos.length - 1;
+  if (n < 2) return NaN;
+  const L = pathLength(pos);
+  const d = Math.max(...pos.map(p => Math.sqrt((p[0] - pos[0][0]) ** 2 + (p[1] - pos[0][1]) ** 2)));
+  if (!(L > 0) || !(d > 0)) return NaN;
+  const den = Math.log(n) + Math.log(d / L);
+  return den > 0 ? Math.log(n) / den : NaN;
 }
 
 const pathLength = pos => pos.slice(1).reduce((s, p, i) => s + Math.sqrt((p[0] - pos[i][0]) ** 2 + (p[1] - pos[i][1]) ** 2), 0);

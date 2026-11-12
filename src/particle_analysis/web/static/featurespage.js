@@ -6,11 +6,11 @@ import { MOTION_COLORS } from './viewer.js';
 import { fmt, histogram, lineChart, sortable } from './charts.js';
 
 const LABELS = {
-  diffusion_coefficient: ['D (px²/frame)', 'exp(intercept)/(4α) of the log-log MSD fit'],
+  diffusion_coefficient: ['D (px²/frame^α)', 'from the log-log fit of MSD = 4 D t^α: exp(intercept)/4 (blank if the MSD falls with lag)'],
   alpha: ['α', 'slope of log MSD against log lag: ~1 diffusive, <1 subdiffusive, ~2 ballistic'],
   radius_gyration: ['Rg (px)', 'RMS distance of the points from their centre'],
   asymmetry: ['asymmetry', '1 − λmin/λmax of the position covariance: 0 round, 1 a line'],
-  fractal_dimension: ['fractal dim.', 'box-counting slope over 20 scales'],
+  fractal_dimension: ['fractal dim.', "Katz: log n / log(n d/L); 1 straight, ~2 random walk, >2 confined"],
   straightness: ['straightness', 'end-to-end distance / path length'],
   mean_velocity: ['velocity (px/frame)', 'mean step speed'],
   mean_acceleration: ['acceleration', 'mean |Δv| per frame (px/frame²)'],
@@ -65,7 +65,7 @@ route('features', async () => {
     onRow: r => {
       $('#msdt').textContent = `MSD of track ${r.track_id}`;
       const lags = r.msd_values.map((_, i) => i + 1);
-      const fit = lags.map(t => 4 * r.diffusion_coefficient * r.alpha * t ** r.alpha);
+      const fit = lags.map(t => 4 * r.diffusion_coefficient * t ** r.alpha);
       $('#msd').innerHTML = lineChart([{ x: lags, y: r.msd_values, color: '#7cff6b', points: true, label: 'MSD' },
         { x: lags, y: fit, color: '#ff5ad1', dash: true, label: `fit: α = ${fmt(r.alpha, 2)}` }], { xlabel: 'lag (frames)', ylabel: 'MSD (px²)' });
     },

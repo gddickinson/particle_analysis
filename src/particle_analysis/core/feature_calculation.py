@@ -4,7 +4,6 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from scipy import stats
-from scipy.spatial.distance import pdist
 from ..core.particle_tracking import Track
 import logging
 
@@ -141,9 +140,15 @@ class FeatureCalculator:
     def fit_msd_curve(self,
                      msd_values: np.ndarray,
                      time_lags: np.ndarray) -> Tuple[float, float]:
-        """Fit MSD curve to extract diffusion coefficient and alpha"""
-        # Fit only lags with a positive MSD and time lag (log(0) is -inf; a track that returns exactly
-        # to an earlier position has MSD 0 at that lag)
+        """Fit MSD = 4 D t^alpha by a straight line in log-log space.
+
+        log MSD = log(4 D) + alpha log t, so alpha is the slope and D = exp(intercept) / 4 (in the units of the
+        positions and times, here pixels^2 per frame^alpha). Only lags with a positive MSD are used (log(0) is -inf;
+        a track that returns exactly to an earlier position has MSD 0 at that lag).
+
+        Returns (nan, nan) when the fit is invalid: fewer than two usable lags, or a negative slope (MSD falling with
+        lag, which no diffusion model allows; it happens for immobile particles dominated by localisation noise).
+        """
         msd_values = np.asarray(msd_values, dtype=float)
         time_lags = np.asarray(time_lags, dtype=float)
         keep = (msd_values > 0) & (time_lags > 0) & np.isfinite(msd_values) & np.isfinite(time_lags)
@@ -154,10 +159,12 @@ class FeatureCalculator:
         
         # Perform linear fit
         slope, intercept, _, _, _ = stats.linregress(log_time, log_msd)
+        if not np.isfinite(slope) or slope < 0:
+            return np.nan, np.nan
         
         # Extract parameters
         alpha = slope
-        diff_coef = np.exp(intercept) / (4 * (alpha if alpha != 0 else 1))
+        diff_coef = np.exp(intercept) / 4
         
         return diff_coef, alpha
     
@@ -184,37 +191,27 @@ class FeatureCalculator:
         return float(asymmetry)
     
     def calculate_fractal_dimension(self, positions: np.ndarray) -> float:
-        """Calculate fractal dimension using box-counting method"""
-        # Calculate pairwise distances
-        distances = pdist(positions)
-        
-        # Smallest non-zero distance sets the finest scale (repeated positions give distance 0)
-        distances = distances[distances > 0]
-        if len(distances) == 0:
-            return 0
-            
-        # Use range of scales
-        scales = np.logspace(np.log10(min(distances)/2),
-                           np.log10(max(distances)*2), 20)
-        counts = []
-        
-        # Count boxes at each scale
-        for scale in scales:
-            # Normalize positions to current scale
-            scaled_pos = positions / scale
-            # Round to get box indices
-            boxes = np.ascontiguousarray(np.floor(scaled_pos)).view(
-                np.dtype((np.void, scaled_pos.dtype.itemsize * scaled_pos.shape[1]))
-            )
-            # Count unique boxes
-            n_boxes = len(np.unique(boxes))
-            counts.append(n_boxes)
-            
-        # Perform linear fit in log-log space
-        coeffs = np.polyfit(np.log(scales), np.log(counts), 1)
-        fractal_dim = -coeffs[0]
-        
-        return fractal_dim
+        """Fractal dimension of the trajectory by Katz's method (Katz & George 1985).
+
+        D = log(n) / (log(n) + log(d / L)), with n the number of steps, L the path length and d the planar extent
+        (largest distance from the first point). D = 1 for a straight line, about 2 for a 2D random walk
+        (1.9 on average for 15-1000 steps), above 2 for confined motion. NaN if there are fewer than 2 steps or
+        the particle never moves.
+        """
+        positions = np.asarray(positions, dtype=float)
+        n = len(positions) - 1
+        if n < 2:
+            return np.nan
+        steps = np.sqrt(np.sum(np.diff(positions, axis=0)**2, axis=1))
+        path_length = np.sum(steps)
+        extent = np.max(np.sqrt(np.sum((positions - positions[0])**2, axis=1)))
+        if path_length <= 0 or extent <= 0:
+            return np.nan
+        # denominator log(n d / L) <= 0 when the extent is at most one mean step (back-and-forth): undefined
+        denominator = np.log(n) + np.log(extent / path_length)
+        if denominator <= 0:
+            return np.nan
+        return float(np.log(n) / denominator)
     
     def calculate_straightness(self, positions: np.ndarray) -> float:
         """Calculate track straightness"""

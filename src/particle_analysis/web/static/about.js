@@ -22,8 +22,8 @@ route('about', async () => {
         frame by frame, all (track, detection) pairs within <i>max_distance</i> are linked closest first; a track may miss up
         to <i>max_gap</i> frames (the gap is filled by linear interpolation) and is kept with at least <i>min_track_length</i> points.</li>
       <li><b>Track features</b> (<code>core/feature_calculation.py</code>, FeatureCalculator) <span class="badge js">JS port in the browser</span>:
-        MSD over up to ${D.features.max_msd_points} lags and a straight-line fit of log MSD against log lag (α the slope),
-        radius of gyration, asymmetry, box-counting fractal dimension, straightness, mean velocity and acceleration,
+        MSD over up to ${D.features.max_msd_points} lags and a straight-line fit of log MSD against log lag for MSD = 4Dt<sup>α</sup> (α the slope; a falling MSD is an invalid fit),
+        radius of gyration, asymmetry, fractal dimension (Katz), straightness, mean velocity and acceleration,
         confinement ratio; in pixels and frames.</li>
       <li><b>Motion analysis</b> (<code>analysis/diffusion.py</code>, DiffusionAnalyzer) <span class="badge py">Python</span>:
         the MSD in µm² against lag in seconds, fitted with normal, anomalous, confined and directed models; the best R² gives the

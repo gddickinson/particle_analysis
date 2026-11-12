@@ -133,9 +133,6 @@ def test_random_motion(calculator, random_track):
     assert 0.2 < features.straightness < 0.8
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Box counting over 15 points between min/2 and 2*max pairwise distance gives ~0.5, not 2. "
-    "Whether to change the estimator is a method decision for George (see SESSION_LOG.md)."))
 def test_random_walk_fractal_dimension(calculator, random_track):
     """Fractal dimension should be close to 2 for a random walk (original expectation, kept as xfail)."""
     features = calculator.calculate_track_features(random_track)
@@ -236,4 +233,41 @@ def test_features_when_a_lag_has_zero_msd(calculator):
     whole feature calculation fail (None) instead of fitting the positive MSD points."""
     xy = [(0, 0), (1, 0), (0, 0), (1, 0), (0, 0), (1, 0), (0, 0)]
     f = calculator.calculate_track_features(_track(xy))
-    assert f is not None and np.isfinite(f.alpha) and np.isfinite(f.fractal_dimension)
+    assert f is not None and np.isfinite(f.alpha)
+    # pure back-and-forth: extent equals one mean step, so Katz's fractal dimension is undefined (NaN)
+    assert np.isnan(f.fractal_dimension)
+
+
+def test_fractal_dimension_katz_reference_values(calculator):
+    """Katz: 1 for a straight line, ~2 for 2D random walks (1.9 on average), NaN when undefined."""
+    line = np.column_stack([np.arange(20.0), np.zeros(20)])
+    assert calculator.calculate_fractal_dimension(line) == pytest.approx(1.0)
+    rng = np.random.default_rng(0)
+    walks = [calculator.calculate_fractal_dimension(np.cumsum(rng.normal(0, 1, (100, 2)), axis=0))
+             for _ in range(300)]
+    assert 1.75 < np.mean(walks) < 2.05
+    # confined (a walk reflected inside a small disc) is above 2 on average
+    confined = []
+    for _ in range(100):
+        pos = [np.zeros(2)]
+        for _ in range(99):
+            prop = pos[-1] + rng.normal(0, 1, 2)
+            pos.append(prop if np.hypot(*prop) <= 2.0 else pos[-1])
+        confined.append(calculator.calculate_fractal_dimension(np.array(pos)))
+    assert np.nanmean(confined) > 2.2
+    assert np.isnan(calculator.calculate_fractal_dimension(np.zeros((5, 2))))
+
+
+def test_msd_fit_uses_4_d_t_alpha(calculator):
+    """Regression: D was exp(intercept) / (4 alpha). For MSD = 4 D t^alpha exactly, the fit must return D, alpha."""
+    t = np.arange(1, 11, dtype=float)
+    for D, alpha in ((0.3, 1.0), (0.3, 0.5), (2.0, 1.8)):
+        d_fit, a_fit = calculator.fit_msd_curve(4 * D * t**alpha, t)
+        assert d_fit == pytest.approx(D) and a_fit == pytest.approx(alpha)
+
+
+def test_msd_fit_with_negative_slope_is_invalid(calculator):
+    """Regression: a falling MSD gave a negative D; it is now an invalid fit (NaN, NaN)."""
+    t = np.arange(1, 6, dtype=float)
+    d_fit, a_fit = calculator.fit_msd_curve(1.0 / t, t)
+    assert np.isnan(d_fit) and np.isnan(a_fit)
