@@ -7,9 +7,10 @@ ParticleAnalysis is an open-source Python application for detecting, tracking, a
 ## Key Features
 
 - **Advanced Particle Detection**
-  - Multi-scale Gaussian detection for varying particle sizes
+  - 2D Gaussian fitting for sub-pixel positions (single scale: `max_sigma` sets the fit window;
+    `min_sigma` and `sigma_steps` are stored but not used by the detector)
   - Local background subtraction and noise estimation
-  - SNR-based filtering of detections
+  - SNR of every detection, with SNR filtering in the analysis dashboard
   - Interactive ROI selection and parameter tuning
 
 - **Robust Particle Tracking**
@@ -38,7 +39,7 @@ conda create -n particle_analysis python=3.11
 conda activate particle_analysis
 
 # Install dependencies
-pip install -r requirements.txt
+pip install -r requirements/requirements.txt
 
 # Install the package
 pip install .
@@ -91,16 +92,16 @@ tracks = tracker.track_particles(particles)
 
 ### Particle Detection
 
-The detection algorithm employs a multi-scale Gaussian fitting approach:
+The detection algorithm fits a 2D Gaussian to each candidate spot:
 1. Background estimation using median filtering
-2. Local maxima detection with SNR thresholding
+2. Local maxima detection above a threshold relative to the frame's brightest pixel (`threshold_rel`)
 3. Sub-pixel localization through 2D Gaussian fitting
 4. Quality control based on fit parameters
 
 ### Tracking Algorithm
 
 Particle linking is performed using a nearest-neighbor approach with the following steps:
-1. Frame-to-frame particle assignment using KDTree
+1. Frame-to-frame assignment: all (track, particle) pairs within `max_distance` (found with a KDTree), closest first
 2. Gap closing for temporary disappearances
 3. Track initialization and termination
 4. Track quality filtering
@@ -131,11 +132,13 @@ The application accepts:
 - SciPy
 - pandas
 - scikit-image
+- scikit-learn
+- matplotlib
 - pyqtgraph
 
 ## Contributing
 
-Contributions are welcome! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+Contributions are welcome! Please see our [Contributing Guidelines](docs/contributing_guide.md) for details.
 
 
 ## License
