@@ -34,9 +34,10 @@ route('data', async () => {
         <label for="file">Recording (.tif / .tiff, frames × height × width; for 4D stacks the first channel)</label>
         <input id="file" name="file" type="file" accept=".tif,.tiff" ${isStatic() ? 'disabled' : ''}>
         <fieldset><legend>Detector</legend><div class="row">${num('threshold_rel', 0.01)}${num('min_distance', 1)}</div>
-          <div class="row">${num('max_sigma', 0.1)}</div>
-          <p class="hint">max_sigma sets the fitting window (4 × max_sigma each side). The detector also has min_sigma and
-            sigma_steps, which it stores but does not use, so they are not offered here.</p></fieldset>
+          <div class="row">${num('min_sigma', 0.1)}${num('max_sigma', 0.1)}${num('sigma_steps', 1)}</div>
+          <p class="hint">Spot width range (Gaussian sigma, px): the fitted width is kept between min_sigma and max_sigma;
+            sigma_steps trial widths in that range give each fit its starting value; max_sigma also sets the fit window
+            (4 × max_sigma each side).</p></fieldset>
         <fieldset><legend>Recording</legend><div class="row">
           <div><label for="d-max">Frames to analyse (from the start)</label><input id="d-max" name="max_frames" type="number" min="1" max="${info.max_frames}" value="100"></div>
           <div><label for="d-dt">Frame interval (s)</label><input id="d-dt" type="number" step="any" min="0.00001" placeholder="${info.defaults.diffusion.frame_interval} (default)"></div></div>
@@ -62,7 +63,7 @@ route('data', async () => {
     if (!f) { msg.innerHTML = '<span class="err">Choose a file first.</span>'; return; }
     const fd = new FormData();
     fd.append('file', f);
-    for (const k of ['threshold_rel', 'min_distance', 'max_sigma']) fd.append(k, $('#d-' + k).value);
+    for (const k of ['threshold_rel', 'min_distance', 'min_sigma', 'max_sigma', 'sigma_steps']) fd.append(k, $('#d-' + k).value);
     fd.append('max_frames', $('#d-max').value);
     btn.disabled = true; msg.innerHTML = '<span class="mute">Reading and detecting...</span>';
     try {

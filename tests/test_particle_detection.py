@@ -165,3 +165,29 @@ def test_particle_fitting_edge_cases(detector):
     particles = detector.detect_frame(frame)
     # Number of detected particles should be reasonable
     assert len(particles) < 10
+
+def _spot_frame(sigma, size=41, amp=200.0, seed=0):
+    rng = np.random.default_rng(seed)
+    y, x = np.mgrid[0:size, 0:size]
+    c = size // 2 + 0.3
+    return 100 + amp * np.exp(-((x - c)**2 + (y - c)**2) / (2 * sigma**2)) + rng.normal(0, 2, (size, size))
+
+
+def test_sigma_range_bounds_the_fitted_width():
+    """Regression: min_sigma/max_sigma were ignored (fit bounds were fixed at 0.8-4 px)."""
+    frame = _spot_frame(2.5)
+    wide = ParticleDetector(min_sigma=1.0, max_sigma=4.0, min_distance=5).detect_frame(frame)
+    assert len(wide) == 1 and abs(wide[0].sigma - 2.5) < 0.1
+    narrow = ParticleDetector(min_sigma=1.0, max_sigma=2.0, min_distance=5).detect_frame(frame)
+    assert all(p.sigma <= 2.0 + 1e-9 for p in narrow)
+    big = ParticleDetector(min_sigma=3.0, max_sigma=4.0, min_distance=5).detect_frame(_spot_frame(1.5))
+    assert all(p.sigma >= 3.0 - 1e-9 for p in big)
+
+
+def test_sigma_steps_sets_the_trial_widths():
+    det = ParticleDetector(min_sigma=1.0, max_sigma=3.0, sigma_steps=3)
+    assert np.allclose(det.sigmas, [1.0, 2.0, 3.0])
+    with pytest.raises(ValueError):
+        ParticleDetector(min_sigma=3.0, max_sigma=1.0)
+    with pytest.raises(ValueError):
+        ParticleDetector(sigma_steps=0)

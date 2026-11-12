@@ -7,8 +7,8 @@ ParticleAnalysis is an open-source Python application for detecting, tracking, a
 ## Key Features
 
 - **Advanced Particle Detection**
-  - 2D Gaussian fitting for sub-pixel positions (single scale: `max_sigma` sets the fit window;
-    `min_sigma` and `sigma_steps` are stored but not used by the detector)
+  - 2D Gaussian fitting for sub-pixel positions, the spot width kept within `min_sigma`..`max_sigma`
+    (`sigma_steps` trial widths give the starting value; `max_sigma` also sets the fit window)
   - Local background subtraction and noise estimation
   - SNR of every detection, with SNR filtering in the analysis dashboard
   - Interactive ROI selection and parameter tuning

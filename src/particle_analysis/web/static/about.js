@@ -15,8 +15,9 @@ route('about', async () => {
     <ol class="steps">
       <li><b>Detection</b> (<code>core/particle_detection.py</code>, ParticleDetector) <span class="badge py">Python</span>:
         background by a 20×20 median filter, local maxima of the background-subtracted frame above <i>threshold_rel</i> × its
-        maximum and at least <i>min_distance</i> apart, then a 2D Gaussian fitted to a window around each peak; fits with RMS
-        residual above half the amplitude are rejected. SNR is the fitted amplitude over the standard deviation of the
+        maximum and at least <i>min_distance</i> apart, then a 2D Gaussian fitted to a window around each peak, its width kept
+        between <i>min_sigma</i> and <i>max_sigma</i> (started from the best of <i>sigma_steps</i> trial widths); fits with
+        RMS residual above half the amplitude are rejected. SNR is the fitted amplitude over the standard deviation of the
         background-subtracted frame.</li>
       <li><b>Tracking</b> (<code>core/particle_tracking.py</code>, ParticleTracker) <span class="badge js">JS port in the browser</span>:
         frame by frame, all (track, detection) pairs within <i>max_distance</i> are linked closest first; a track may miss up

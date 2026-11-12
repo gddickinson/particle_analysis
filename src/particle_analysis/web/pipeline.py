@@ -60,8 +60,10 @@ def parse_number(name: str, raw, default):
 
 
 def detector_params(form: Dict) -> Dict:
-    # (min_sigma and sigma_steps are accepted for completeness; ParticleDetector stores but does not use them)
-    return {k: parse_number(k, form.get(k), d) for k, d in DEFAULTS["detector"].items()}
+    p = {k: parse_number(k, form.get(k), d) for k, d in DEFAULTS["detector"].items()}
+    if p["min_sigma"] > p["max_sigma"]:
+        raise PipelineError("min_sigma must not exceed max_sigma")
+    return p
 
 
 def detect(movie: np.ndarray, params: Dict) -> List[Particle]:

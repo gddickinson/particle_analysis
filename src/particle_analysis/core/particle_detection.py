@@ -50,11 +50,13 @@ class ParticleDetector:
         Parameters
         ----------
         min_sigma : float
-            Minimum standard deviation for Gaussian kernel
+            Smallest spot width (Gaussian standard deviation, pixels): lower bound of the fitted sigma
         max_sigma : float
-            Maximum standard deviation for Gaussian kernel
+            Largest spot width: upper bound of the fitted sigma; also sets the fit window (4 * max_sigma
+            pixels on each side of the peak)
         sigma_steps : int
-            Number of steps between min and max sigma
+            Number of trial widths between min_sigma and max_sigma; the one that best matches each spot
+            (least-squares amplitude at the spot's centroid) is the starting value of the fit
         threshold_rel : float
             Relative threshold for peak detection
         min_distance : int
@@ -69,8 +71,13 @@ class ParticleDetector:
         self.min_distance = min_distance
         self.exclude_border = exclude_border
 
-        # Calculate sigma values
-        self.sigmas = np.linspace(min_sigma, max_sigma, sigma_steps)
+        if not 0 < min_sigma <= max_sigma:
+            raise ValueError("need 0 < min_sigma <= max_sigma")
+        if int(sigma_steps) < 1:
+            raise ValueError("sigma_steps must be at least 1")
+
+        # Trial widths for the starting value of each fit
+        self.sigmas = np.linspace(min_sigma, max_sigma, int(sigma_steps))
 
     def detect_frame(self, frame: np.ndarray) -> List[Particle]:
         """
@@ -214,13 +221,17 @@ class ParticleDetector:
             x_center_init = np.sum(x * region_bg_sub) / total_intensity
             y_center_init = np.sum(y * region_bg_sub) / total_intensity
 
-            # Estimate initial sigma using intensity-weighted variance
-            x_var = np.sum((x - x_center_init)**2 * region_bg_sub) / total_intensity
-            y_var = np.sum((y - y_center_init)**2 * region_bg_sub) / total_intensity
-            sigma_init = np.sqrt((x_var + y_var) / 2)
-
-            # Constrain sigma to reasonable range
-            sigma_init = np.clip(sigma_init, 1.0, 3.0)
+            # Initial sigma: the trial width (self.sigmas) whose Gaussian at the centroid, with its
+            # least-squares amplitude, leaves the smallest residual
+            r2 = (x - x_center_init)**2 + (y - y_center_init)**2
+            best = None
+            for s in self.sigmas:
+                g = np.exp(-r2 / (2 * s**2))
+                a = np.sum(g * region_bg_sub) / np.sum(g * g)
+                res = np.sum((region_bg_sub - a * g)**2)
+                if best is None or res < best[0]:
+                    best = (res, s)
+            sigma_init = best[1]
 
             # Define 2D Gaussian function
             def gaussian_2d(coords, amplitude, x_center, y_center, sigma):
@@ -234,10 +245,16 @@ class ParticleDetector:
 
             # Set bounds based on region size
             height, width = region.shape
+            # sigma is bounded by the detector's size range; a degenerate range gets a tiny width so the
+            # bounds stay valid (the fit then keeps sigma at that value)
+            lo_s, hi_s = float(self.min_sigma), float(self.max_sigma)
+            if hi_s <= lo_s:
+                hi_s = lo_s * (1 + 1e-9)
             bounds = (
-                [amplitude * 0.5, 0, 0, 0.8],  # lower bounds
-                [amplitude * 2.0, width, height, 4.0]  # upper bounds
+                [amplitude * 0.5, 0, 0, lo_s],  # lower bounds
+                [amplitude * 2.0, width, height, hi_s]  # upper bounds
             )
+            sigma_init = float(np.clip(sigma_init, lo_s, hi_s))
 
             # Perform fit with increased max iterations and tolerance
             from scipy.optimize import curve_fit
@@ -262,9 +279,6 @@ class ParticleDetector:
             if rel_error > 0.5:  # 50% relative error threshold
                 return None
 
-            # Check if fitted parameters are reasonable
-            if not (0.5 <= popt[3] <= 4.0):  # sigma bounds
-                return None
 
             return tuple(popt)
 
